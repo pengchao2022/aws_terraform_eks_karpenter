@@ -62,25 +62,30 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      # 🛠️ 第一步：优先部署基础设施与 Helm Release
-      # 这样可以在不触发 NodePool/EC2NodeClass 校验报错的情况下，先让 Helm 把 CRD 结构注入集群。
-      # 同时由于我们在 main.tf 里加了托管节点组依赖，CoreDNS add-on 也会在这步顺利就绪。
-      # 🛠️ 第一步：只部署底座基础设施（VPC 和 EKS 包含系统节点组和 Add-ons）
-      # 这时绝不触碰任何 Helm 释放和 Kubernetes 自定义资源
-      - name: Terraform Apply (Base Infrastructure)
+      # 1️⃣ 第一步：确保底层硬件就绪（因为你之前跑成功了，这步现在会秒过刷新）
+      # 它会确保 VPC、EKS、系统节点、CoreDNS Add-on 全部牢固地写入 State 中
+      - name: Step 1 - Deploy Base Infrastructure
         run: |
           terraform apply -auto-approve \
             -target=module.vpc \
             -target=module.eks \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
-      # 🚀 第二步：全量 Apply（部署 Karpenter Helm Release 以及其 Nodepool / EC2NodeClass）
-      # 此时 EKS 已经 100% 物理就绪，Token 也能被 Helm Provider 完美动态抓取，不会再报 unreachable！
-      - name: Terraform Apply (Karpenter & CRDs)
+      # 2️⃣ 第二步：单独灌入 Karpenter 的 Helm 释放（核心改变！）
+      # 这一步会成功把 Karpenter 控制器和它附带的 CRD（NodePool, EC2NodeClass）强行安装进 K8s
+      - name: Step 2 - Install Karpenter Helm Release
+        run: |
+          terraform apply -auto-approve \
+            -target=module.karpenter.helm_release.karpenter \
+            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
+
+      # 3️⃣ 第三步：全量无保留 Apply
+      # 此时底层有了、Karpenter 跑起来了、CRD 认得了，Terraform 扫描时畅通无阻，完美补齐自定义资源！
+      - name: Step 3 - Deploy Custom Resources & Verify
         run: |
           terraform apply -auto-approve \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
-            
+
       # 🔍 验证集群状态
       - name: Verify Cluster and Nodes
         run: |
@@ -91,7 +96,7 @@ jobs:
           kubectl get nodes -o wide
           
           echo "Checking Karpenter deployment status..."
-          kubectl get pods -n karpenter -o wide || echo "Karpenter namespace or pods not found yet"
+          kubectl get pods -n karpenter -o wide || echo "Karpenter pods not found"
 
       - name: Terraform Output
         if: always()
