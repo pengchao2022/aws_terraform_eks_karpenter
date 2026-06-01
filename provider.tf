@@ -1,22 +1,13 @@
-# AWS Provider 配置（保持不变）
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 provider "aws" {
-  region = var.aws_region
-  default_tags {
-    tags = var.tags
-  }
-}
-
-provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-  }
-}
-
-provider "helm" {
-  debug = true
+  region = var.aws_region # 或者隐式读取环境变量，总之这里不要再写任何 provider "kubernetes"
 }

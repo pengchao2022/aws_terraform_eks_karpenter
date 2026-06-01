@@ -2,8 +2,7 @@ name: Terraform Deploy EKS with Karpenter
 
 on:
   pull_request:
-    types:
-      - closed
+    types: [closed]
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -16,10 +15,7 @@ on:
         required: true
         default: 'dev'
         type: choice
-        options:
-          - dev
-          - staging
-          - prod
+        options: [dev, staging, prod]
 
 env:
   TF_VERSION: 1.5.0
@@ -63,21 +59,44 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
+      # 🚀 Step 1: 全量部署基础设施（包含网络、EKS 底座、以及 Karpenter IAM 角色）
+      # 此时由于剥离了 Helm 资源，Terraform 会一气呵成全绿通过！
       - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
-      - name: Deploy Karpenter Custom Resources via kubectl
+      # 📦 Step 2: 完美的后置收尾 - 通过原生 kubectl 和 Helm 注入软件层
+      - name: Deploy Karpenter Components via CLI
         run: |
-          echo "Connecting to EKS Cluster..."
+          echo "Connecting to freshly baked EKS Cluster..."
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
           
-          # 🌟 增加一步容错：等待 Karpenter CRD 架构在集群中完全初始化完毕，避免 kubectl 提交过快报 transient 错误
-          echo "Waiting for Karpenter CRDs to be established..."
-          kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws || echo "CRDs might be older version or still installing..."
+          echo "Adding Karpenter Helm Repository..."
+          helm repo add karpenter https://charts.karpenter.sh/
+          helm repo update
+          
+          echo "Installing Karpenter Brain via Helm..."
+          CLUSTER_ENDPOINT=$(aws eks describe-cluster --name allen-eks-karpenter --query "cluster.endpoint" --output text)
+          ROLE_ARN="arn:aws:iam::317429619308:role/allen-eks-karpenter-karpenter-controller"
+          
+          helm upgrade --install karpenter karpenter/karpenter \
+            --namespace karpenter --create-namespace \
+            --version "0.37.0" \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${ROLE_ARN} \
+            --set settings.clusterName=allen-eks-karpenter \
+            --set settings.clusterEndpoint=${CLUSTER_ENDPOINT} \
+            --set settings.interruptionQueue=allen-eks-karpenter \
+            --set controller.resources.requests.cpu=100m \
+            --set controller.resources.requests.memory=256Mi \
+            --set controller.resources.limits.cpu=1 \
+            --set controller.resources.limits.memory=1Gi \
+            --wait
 
-          echo "Applying Karpenter EC2NodeClass..."
+          echo "Waiting for Karpenter CRDs to be fully established..."
+          kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
+
+          echo "Applying Karpenter EC2NodeClass Custom Resource..."
           cat <<EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1beta1
           kind: EC2NodeClass
@@ -105,7 +124,7 @@ jobs:
               KUBELET
           EOF
 
-          echo "Applying Karpenter NodePool..."
+          echo "Applying Karpenter NodePool Custom Resource..."
           cat <<EOF | kubectl apply -f -
           apiVersion: karpenter.sh/v1beta1
           kind: NodePool
@@ -142,20 +161,46 @@ jobs:
               expireAfter: 720h
           EOF
 
+          echo "Deploying hold-nodes pause deployment..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: keep-nodes
+            namespace: default
+          spec:
+            replicas: 3
+            selector:
+              matchLabels:
+                app: keep-nodes
+            template:
+              metadata:
+                labels:
+                  app: keep-nodes
+              spec:
+                tolerations:
+                - operator: Exists
+                containers:
+                - name: pause
+                  image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+          EOF
+
+      # 🔍 Step 3: 最终成果验证
       - name: Verify Cluster and Nodes
         run: |
-          # 🌟 增加凭据同步更新，确保验证步骤具备完全的 K8s 访问权
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
-          
-          echo "Checking system nodes..."
+          echo "=== Active Nodes ==="
           kubectl get nodes -o wide
-          
-          echo "Checking Karpenter CRDs status..."
-          kubectl get nodepool || echo "NodePool resource type not ready yet"
-          kubectl get ec2nodeclass || echo "EC2NodeClass resource type not ready yet"
-          
-          echo "Checking keep-nodes deployment status..."
-          kubectl get pods -o wide
+          echo "=== Karpenter CRDs ==="
+          kubectl get nodepool
+          kubectl get ec2nodeclass
 
       - name: Terraform Output
         if: always()
