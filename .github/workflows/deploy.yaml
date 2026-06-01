@@ -35,6 +35,7 @@ jobs:
   terraform-deploy:
     name: Terraform Deploy
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     
     steps:
       - name: Checkout code
@@ -62,22 +63,99 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      - name: Deploy Custom Resources & Verify
+      - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
-      # 🔍 验证集群状态
+      - name: Deploy Karpenter Custom Resources via kubectl
+        run: |
+          echo "Connecting to EKS Cluster..."
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
+          
+          # 🌟 增加一步容错：等待 Karpenter CRD 架构在集群中完全初始化完毕，避免 kubectl 提交过快报 transient 错误
+          echo "Waiting for Karpenter CRDs to be established..."
+          kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws || echo "CRDs might be older version or still installing..."
+
+          echo "Applying Karpenter EC2NodeClass..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: karpenter.k8s.aws/v1beta1
+          kind: EC2NodeClass
+          metadata:
+            name: default
+          spec:
+            amiFamily: Ubuntu
+            amiSelectorTerms:
+              - name: "ubuntu-eks-1.29-*"
+            role: "KarpenterNodeRole-allen-eks-karpenter"
+            subnetSelectorTerms:
+              - tags:
+                  karpenter.sh/discovery: allen-eks-karpenter
+            securityGroupSelectorTerms:
+              - tags:
+                  aws:eks:cluster-name: allen-eks-karpenter
+            tags:
+              karpenter.sh/discovery: allen-eks-karpenter
+              Name: allen-eks-karpenter-node
+            userData: |
+              #!/bin/bash
+              set -ex
+              cat <<-KUBELET > /etc/default/kubelet
+              KUBELET_EXTRA_ARGS="--node-labels=node.kubernetes.io/lifecycle=normal"
+              KUBELET
+          EOF
+
+          echo "Applying Karpenter NodePool..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: karpenter.sh/v1beta1
+          kind: NodePool
+          metadata:
+            name: default
+          spec:
+            template:
+              spec:
+                nodeClassRef:
+                  name: default
+                requirements:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/os
+                    operator: In
+                    values: ["linux"]
+                  - key: karpenter.k8s.aws/instance-family
+                    operator: In
+                    values: ["t3"]
+                  - key: karpenter.k8s.aws/instance-size
+                    operator: In
+                    values: ["micro", "small", "medium"]
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values: ["on-demand"]
+                taints: []
+                startupTaints: []
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            disruption:
+              consolidationPolicy: WhenUnderutilized
+              expireAfter: 720h
+          EOF
+
       - name: Verify Cluster and Nodes
         run: |
-          echo "Configuring kubectl..."
+          # 🌟 增加凭据同步更新，确保验证步骤具备完全的 K8s 访问权
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
           
           echo "Checking system nodes..."
           kubectl get nodes -o wide
           
-          echo "Checking Karpenter deployment status..."
-          kubectl get pods -n karpenter -o wide || echo "Karpenter pods not found"
+          echo "Checking Karpenter CRDs status..."
+          kubectl get nodepool || echo "NodePool resource type not ready yet"
+          kubectl get ec2nodeclass || echo "EC2NodeClass resource type not ready yet"
+          
+          echo "Checking keep-nodes deployment status..."
+          kubectl get pods -o wide
 
       - name: Terraform Output
         if: always()

@@ -66,7 +66,7 @@ resource "aws_iam_role_policy_attachment" "karpenter_controller" {
   policy_arn = aws_iam_policy.karpenter_controller.arn
 }
 
-# Helm Release for Karpenter
+# Helm Release for Karpenter (只负责安装核心脑子和 CRD 架构)
 resource "helm_release" "karpenter" {
   name       = "karpenter"
   repository = "https://charts.karpenter.sh"
@@ -101,121 +101,7 @@ EOT
   ]
 }
 
-# =========================================================================
-# ✨ 终极优化：Karpenter NodePool Configuration (恢复 Map 格式，完美绕过 Plan 校验)
-# =========================================================================
-resource "kubernetes_manifest" "karpenter_nodepool" {
-  # 🛑 核心技巧：恢复为标准 Map，同时使用动态字段使得 Plan 阶段不进行静态校验
-  manifest = {
-    apiVersion = "karpenter.sh/v1beta1"
-    kind       = "NodePool"
-    metadata = {
-      name = "default"
-    }
-    spec = {
-      template = {
-        spec = {
-          nodeClassRef = {
-            # 注入 Helm 的动态依赖，将其转为运行时计算值
-            name = "default-${helm_release.karpenter.id == "" ? "" : "default"}"
-          }
-          requirements = [
-            {
-              key      = "kubernetes.io/arch"
-              operator = "In"
-              values   = [var.architecture]
-            },
-            {
-              key      = "kubernetes.io/os"
-              operator = "In"
-              values   = ["linux"]
-            },
-            {
-              key      = "karpenter.k8s.aws/instance-family"
-              operator = "In"
-              values   = var.instance_families
-            },
-            {
-              key      = "karpenter.k8s.aws/instance-size"
-              operator = "In"
-              values   = var.instance_sizes
-            },
-            {
-              key      = "karpenter.sh/capacity-type"
-              operator = "In"
-              values   = ["on-demand"]
-            }
-          ]
-          taints        = []
-          startupTaints = []
-        }
-      }
-      limits = {
-        cpu    = "4"
-        memory = "8Gi"
-      }
-      disruption = {
-        consolidationPolicy = "WhenUnderutilized"
-        expireAfter         = "720h"
-      }
-    }
-  }
-
-  depends_on = [helm_release.karpenter]
-}
-
-# =========================================================================
-# ✨ 终极优化：Karpenter EC2NodeClass Configuration (恢复 Map 格式，完美绕过 Plan 校验)
-# =========================================================================
-resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
-  manifest = {
-    apiVersion = "karpenter.k8s.aws/v1beta1"
-    kind       = "EC2NodeClass"
-    metadata = {
-      # 注入 Helm 动态状态，强制将校验下推至 Apply 阶段
-      name = "default-${helm_release.karpenter.id == "" ? "" : "default"}"
-    }
-    spec = {
-      amiFamily = "Ubuntu"
-      amiSelectorTerms = [
-        {
-          name = "ubuntu-eks-${var.kubernetes_version}-*"
-        }
-      ]
-      role = "KarpenterNodeRole-${var.cluster_name}"
-      subnetSelectorTerms = [
-        {
-          tags = {
-            "karpenter.sh/discovery" = var.cluster_name
-          }
-        }
-      ]
-      securityGroupSelectorTerms = [
-        {
-          tags = {
-            "aws:eks:cluster-name" = var.cluster_name
-          }
-        }
-      ]
-      tags = {
-        "karpenter.sh/discovery" = var.cluster_name
-        "Name"                   = "${var.cluster_name}-node"
-      }
-      userData = base64encode(<<-EOF
-        #!/bin/bash
-        set -ex
-        cat <<-KUBELET > /etc/default/kubelet
-        KUBELET_EXTRA_ARGS="--node-labels=node.kubernetes.io/lifecycle=normal"
-        KUBELET
-      EOF
-      )
-    }
-  }
-
-  depends_on = [helm_release.karpenter]
-}
-
-# 保持节点的 Deployment - 免费套餐使用较小的资源请求
+# 保持节点的 Deployment
 resource "kubernetes_deployment_v1" "keep_nodes" {
   metadata {
     name      = "keep-nodes"
