@@ -26,7 +26,6 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 # EKS 集群
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
-  # 🌟 修复 Bug：原代码写的是 aws_iam_role.cluster.arn，实际应该引用你上面定义的 eks_cluster_role
   role_arn = aws_iam_role.eks_cluster_role.arn
   version  = var.cluster_version
 
@@ -43,8 +42,6 @@ resource "aws_eks_cluster" "this" {
     ]
   }
 
-  # 🌟 核心新增 1：强依赖 EKS 角色策略绑定
-  # 确保 AWS 在给这个 Role 成功注入官方托管策略后，再开始创建集群底座。避免报 400 AccessDenied
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy
   ]
@@ -89,7 +86,6 @@ resource "aws_eks_node_group" "system" {
     Name = "${var.cluster_name}-system-nodes"
   })
 
-  # 这里你的 depends_on 设计得非常好，继续保持！
   depends_on = [
     aws_iam_role_policy_attachment.karpenter_node,
     aws_eks_cluster.this
@@ -97,12 +93,12 @@ resource "aws_eks_node_group" "system" {
 }
 
 # ==========================================
-# 🔧 优化：EKS Add-ons（全部加固显式依赖）
+# 🔧 优化：EKS Add-ons（彻底去掉硬编码，拥抱自动版本选择）
 # ==========================================
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
-  addon_version               = "v1.11.1-eksbuild.6"
+  # 🌟 优化：删除了硬编码的旧版本号，让 AWS 自动挑选最适配 1.30 的官方稳定版
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
@@ -112,22 +108,21 @@ resource "aws_eks_addon" "coredns" {
 resource "aws_eks_addon" "kube_proxy" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "kube-proxy"
-  addon_version               = "v1.29.0-eksbuild.2"
+  # 🌟 优化：删除了错误的 1.29 版本号，完全杜绝 K8s 1.30 与 1.29 的组件冲突
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
-  # 🌟 核心优化 2：kube-proxy 是底层核心网络组件，它需要集群和网络完全稳定后装入
-  depends_on = [aws_eks_cluster.this]
+  # 🌟 补强：kube-proxy 运行在集群的 DaemonSet 上，强行等 system 节点拉起来后部署是最稳妥的
+  depends_on = [aws_eks_node_group.system]
 }
 
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "vpc-cni"
-  addon_version               = "v1.18.1-eksbuild.1"
+  # 🌟 优化：删除版本号，交由 AWS 自适应升级管理
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
-  # 🌟 核心优化 3：vpc-cni 负责节点网卡分配，必须等节点组的 IAM 权限附加完、集群诞生后再开始装
   depends_on = [
     aws_eks_cluster.this,
     aws_iam_role_policy_attachment.karpenter_node
