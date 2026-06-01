@@ -1,6 +1,13 @@
 variable "cluster_name" {
   description = "EKS cluster name"
   type        = string
+  default = "allen-eks-karpenter"
+}
+
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
 }
 
 variable "cluster_endpoint" {
@@ -32,7 +39,7 @@ variable "namespace" {
 variable "karpenter_version" {
   description = "Karpenter Helm chart version"
   type        = string
-  default     = "0.37.0"
+  default     = "0.16.3"
 }
 
 variable "instance_families" {
@@ -42,7 +49,7 @@ variable "instance_families" {
 }
 
 variable "instance_sizes" {
-  description = "Allowed EC2 instance sizes (免费套餐: micro, small)"
+  description = "Allowed EC2 instance sizes"
   type        = list(string)
   default     = ["micro", "small"]
 }

@@ -27,7 +27,7 @@ tags = {
 }
 
 # Karpenter 配置
-karpenter_version           = "0.37.0"
+karpenter_version           = "0.16.3"
 karpenter_instance_families = ["t2", "t3"]  # 免费套餐系列
 karpenter_instance_sizes    = ["micro", "small"]  # 免费套餐大小
 karpenter_architecture      = "amd64"
