@@ -71,8 +71,8 @@ resource "aws_eks_node_group" "system" {
     min_size     = 1
   }
 
-  # 系统组件用普通的 t3.medium 即可
-  instance_types = ["t3.medium"]
+  ami_type       = "AL2_x86_64"
+  instance_types = ["t3.micro"]
 
   labels = {
     "role" = "system"
