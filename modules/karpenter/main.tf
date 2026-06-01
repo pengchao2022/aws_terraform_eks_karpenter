@@ -96,6 +96,7 @@ controller:
 EOT
   ]
 
+  # 🌟 保持模块内部的干净依赖，确保 Helm 安装前 IAM 策略已经就绪
   depends_on = [
     aws_iam_role_policy_attachment.karpenter_controller
   ]

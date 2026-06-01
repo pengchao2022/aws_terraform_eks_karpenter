@@ -59,4 +59,7 @@ module "karpenter" {
   karpenter_version   = var.karpenter_version
   
   tags = var.tags
+  depends_on = [
+    module.eks
+  ]
 }
