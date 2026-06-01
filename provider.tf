@@ -3,11 +3,11 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.80"
     }
   }
 }
 
 provider "aws" {
-  region = var.aws_region # 或者隐式读取环境变量，总之这里不要再写任何 provider "kubernetes"
+  region = var.aws_region 
 }
