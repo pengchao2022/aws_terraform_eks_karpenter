@@ -44,7 +44,6 @@ module "eks" {
 # 创建 Karpenter 模块
 module "karpenter" {
   source = "./modules/karpenter"
-
   cluster_name                = module.eks.cluster_name
   cluster_endpoint           = module.eks.cluster_endpoint
   cluster_certificate_authority = module.eks.cluster_certificate_authority
