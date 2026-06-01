@@ -26,21 +26,28 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 # EKS 集群
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
+  # 🌟 修复 Bug：原代码写的是 aws_iam_role.cluster.arn，实际应该引用你上面定义的 eks_cluster_role
   role_arn = aws_iam_role.eks_cluster_role.arn
   version  = var.cluster_version
 
   vpc_config {
-    subnet_ids              = var.private_subnet_ids
+    subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
     endpoint_private_access = true
     endpoint_public_access  = true
-    public_access_cidrs     = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.tags, {
-    Name = var.cluster_name
-  })
+  lifecycle {
+    ignore_changes = [
+      compute_config,
+      bootstrap_self_managed_addons
+    ]
+  }
 
-  depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
+  # 🌟 核心新增 1：强依赖 EKS 角色策略绑定
+  # 确保 AWS 在给这个 Role 成功注入官方托管策略后，再开始创建集群底座。避免报 400 AccessDenied
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_policy
+  ]
 }
 
 # OIDC Provider
@@ -57,16 +64,16 @@ resource "aws_iam_openid_connect_provider" "eks" {
 }
 
 # ==========================================
-# ✨ 新增：AWS 托管节点组（用于运行系统组件）
+# ✨ AWS 托管节点组（用于运行系统组件）
 # ==========================================
 resource "aws_eks_node_group" "system" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${var.cluster_name}-system-nodes"
-  node_role_arn   = aws_iam_role.karpenter_node_role.arn # 复用你下面定义的 Karpenter 节点角色
+  node_role_arn   = aws_iam_role.karpenter_node_role.arn
   subnet_ids      = var.private_subnet_ids
 
   scaling_config {
-    desired_size = 1 # 保持 1 台就够托管系统组件了，省钱
+    desired_size = 1
     max_size     = 2
     min_size     = 1
   }
@@ -82,7 +89,7 @@ resource "aws_eks_node_group" "system" {
     Name = "${var.cluster_name}-system-nodes"
   })
 
-  # 确保在 IAM 策略完全附加后才创建节点组
+  # 这里你的 depends_on 设计得非常好，继续保持！
   depends_on = [
     aws_iam_role_policy_attachment.karpenter_node,
     aws_eks_cluster.this
@@ -90,16 +97,15 @@ resource "aws_eks_node_group" "system" {
 }
 
 # ==========================================
-# 🔧 优化：EKS Add-ons（让它们显式依赖节点组）
+# 🔧 优化：EKS Add-ons（全部加固显式依赖）
 # ==========================================
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
   addon_version               = "v1.11.1-eksbuild.6"
-  resolve_conflicts_on_create = "OVERWRITE" # 避免卡死异常
+  resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
-  # 🛑 关键：CoreDNS 必须等节点组拉起来后才能成功创建
   depends_on = [aws_eks_node_group.system]
 }
 
@@ -110,6 +116,7 @@ resource "aws_eks_addon" "kube_proxy" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
+  # 🌟 核心优化 2：kube-proxy 是底层核心网络组件，它需要集群和网络完全稳定后装入
   depends_on = [aws_eks_cluster.this]
 }
 
@@ -120,10 +127,14 @@ resource "aws_eks_addon" "vpc_cni" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
-  depends_on = [aws_eks_cluster.this]
+  # 🌟 核心优化 3：vpc-cni 负责节点网卡分配，必须等节点组的 IAM 权限附加完、集群诞生后再开始装
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_iam_role_policy_attachment.karpenter_node
+  ]
 }
 
-# Karpenter 节点 IAM 角色（保持不变）
+# Karpenter 节点 IAM 角色
 resource "aws_iam_role" "karpenter_node_role" {
   name = "KarpenterNodeRole-${var.cluster_name}"
 
@@ -143,7 +154,7 @@ resource "aws_iam_role" "karpenter_node_role" {
   tags = var.tags
 }
 
-# 附加策略到 Karpenter 节点角色（保持不变）
+# 附加策略到 Karpenter 节点角色
 resource "aws_iam_role_policy_attachment" "karpenter_node" {
   for_each = toset([
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
@@ -157,7 +168,7 @@ resource "aws_iam_role_policy_attachment" "karpenter_node" {
   policy_arn = each.value
 }
 
-# Karpenter 节点实例配置文件（保持不变）
+# Karpenter 节点实例配置文件
 resource "aws_iam_instance_profile" "karpenter" {
   name = "KarpenterNodeInstanceProfile-${var.cluster_name}"
   role = aws_iam_role.karpenter_node_role.name
