@@ -101,9 +101,11 @@ EOT
   ]
 }
 
-# Karpenter NodePool Configuration - 免费套餐优化
+# =========================================================================
+# ✨ 优化：Karpenter NodePool Configuration - 采用 jsonencode 延迟 Plan 校验
+# =========================================================================
 resource "kubernetes_manifest" "karpenter_nodepool" {
-  manifest = {
+  manifest = jsonencode({
     apiVersion = "karpenter.sh/v1beta1"
     kind       = "NodePool"
     metadata = {
@@ -142,7 +144,7 @@ resource "kubernetes_manifest" "karpenter_nodepool" {
               values   = ["on-demand"]
             }
           ]
-          taints = []
+          taints        = []
           startupTaints = []
         }
       }
@@ -155,14 +157,16 @@ resource "kubernetes_manifest" "karpenter_nodepool" {
         expireAfter         = "720h"
       }
     }
-  }
+  })
 
   depends_on = [helm_release.karpenter]
 }
 
-# Karpenter EC2NodeClass Configuration - Ubuntu
+# =========================================================================
+# ✨ 优化：Karpenter EC2NodeClass Configuration - 采用 jsonencode 延迟 Plan 校验
+# =========================================================================
 resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
-  manifest = {
+  manifest = jsonencode({
     apiVersion = "karpenter.k8s.aws/v1beta1"
     kind       = "EC2NodeClass"
     metadata = {
@@ -203,12 +207,12 @@ resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
       EOF
       )
     }
-  }
+  })
 
   depends_on = [helm_release.karpenter]
 }
 
-# 保持节点的 Deployment - 免费套餐使用较小的资源请求
+# 保持节点的 Deployment - 免费套餐使用较小的资源请求（保持不变）
 resource "kubernetes_deployment_v1" "keep_nodes" {
   metadata {
     name      = "keep-nodes"
