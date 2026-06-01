@@ -1,0 +1,116 @@
+name: Terraform Deploy EKS with Karpenter
+
+on:
+  pull_request:
+    types:
+      - closed
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - 'modules/**'
+
+env:
+  TF_VERSION: 1.5.0
+  AWS_REGION: us-west-2
+  STATE_BUCKET: pengchao2022-terraform-state
+  STATE_KEY: eks-karpenter/terraform.tfstate
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-deploy:
+    if: github.event.pull_request.merged == true 
+    name: Terraform Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Terraform
+
+      - name: Validate Terraform configuration
+        run: terraform validate
+
+      - name: Initialize Terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.STATE_BUCKET }}" \
+            -backend-config="key=${{ env.STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true"
+
+      - name: Generate Terraform plan
+        id: plan
+        run: |
+          terraform plan \
+            -var="environment=${{ github.event.inputs.environment || 'dev' }}" \
+            -out=tfplan \
+            -input=false
+
+      - name: Upload Terraform plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 7
+
+      - name: Apply Terraform
+        run: |
+          terraform apply -auto-approve tfplan
+
+      - name: Update kubeconfig
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
+
+      - name: Verify Cluster
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
+
+      - name: Deploy Test Application
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: inflate
+            namespace: default
+          spec:
+            replicas: 0
+            selector:
+              matchLabels:
+                app: inflate
+            template:
+              metadata:
+                labels:
+                  app: inflate
+              spec:
+                containers:
+                - name: inflate
+                  image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+                  resources:
+                    requests:
+                      cpu: "1"
+                      memory: "1Gi"
+          EOF
+
+      - name: Terraform Output
+        if: always()
+        run: |
+          echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
+          terraform output >> $GITHUB_STEP_SUMMARY
