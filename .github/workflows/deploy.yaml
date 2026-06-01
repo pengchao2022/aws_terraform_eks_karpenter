@@ -62,9 +62,21 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      # 🚀 核心优化：直接一键全量 Apply
-      # Terraform 会自动计算：VPC -> EKS控制面 -> System托管节点 -> CoreDNS Add-on -> Karpenter
-      - name: Terraform Apply
+      # 🛠️ 第一步：优先部署基础设施与 Helm Release
+      # 这样可以在不触发 NodePool/EC2NodeClass 校验报错的情况下，先让 Helm 把 CRD 结构注入集群。
+      # 同时由于我们在 main.tf 里加了托管节点组依赖，CoreDNS add-on 也会在这步顺利就绪。
+      - name: Terraform Apply (Base & Helm)
+        run: |
+          terraform apply -auto-approve \
+            -target=module.vpc \
+            -target=module.eks \
+            -target=module.karpenter.helm_release.karpenter \
+            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
+
+      # 🚀 第二步：全量 Apply
+      # 此时 Kubernetes API Server 已经能够识别 NodePool 和 EC2NodeClass 的 Schema，
+      # 直接全量运行可以完美创建所有剩余资源并确立正确的 Terraform 状态。
+      - name: Terraform Apply (Full Config & CRDs)
         run: |
           terraform apply -auto-approve \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
