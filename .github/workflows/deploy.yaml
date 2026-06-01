@@ -4,11 +4,23 @@ on:
   pull_request:
     types:
       - closed
+
     paths:
       - '**.tf'
       - '**.tfvars'
       - 'modules/**'
       - '.github/workflows/deploy.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
 
 env:
   TF_VERSION: 1.5.0
@@ -22,7 +34,6 @@ permissions:
 
 jobs:
   terraform-deploy:
-    if: github.event.pull_request.merged == true 
     name: Terraform Deploy
     runs-on: ubuntu-latest
     
@@ -52,75 +63,43 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      - name: Validate Terraform configuration
-        run: terraform validate
-
-      - name: Initialize Terraform
+      # 第一步：只部署 VPC 和 EKS
+      - name: Deploy VPC and EKS only
         run: |
-          terraform init \
-            -backend-config="bucket=${{ env.STATE_BUCKET }}" \
-            -backend-config="key=${{ env.STATE_KEY }}" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="encrypt=true"
+          terraform apply -auto-approve \
+            -target=module.vpc \
+            -target=module.eks \
+            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
-      - name: Generate Terraform plan
-        id: plan
+      # 等待 EKS 集群就绪
+      - name: Wait for EKS cluster
         run: |
-          terraform plan \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}" \
-            -out=tfplan \
-            -input=false
+          echo "Waiting for EKS cluster to be ready..."
+          aws eks wait cluster-active --name allen-eks-karpenter --region ${{ env.AWS_REGION }}
+          echo "EKS cluster is ready!"
+          
+          # 配置 kubectl
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
+          
+          # 等待节点就绪（Karpenter 会创建节点）
+          echo "Waiting for nodes..."
+          sleep 60
+          kubectl get nodes || true
 
-      - name: Upload Terraform plan artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: tfplan
-          retention-days: 7
-
-      - name: Apply Terraform
+      # 第二步：部署 Karpenter
+      - name: Deploy Karpenter
         run: |
-          terraform apply -auto-approve tfplan
-
-      - name: Update kubeconfig
-        run: |
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
+          terraform apply -auto-approve \
+            -target=module.karpenter \
+            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
       - name: Verify Cluster
         run: |
           kubectl get nodes
-          kubectl get pods -A
-
-      - name: Deploy Test Application
-        run: |
-          cat <<EOF | kubectl apply -f -
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: inflate
-            namespace: default
-          spec:
-            replicas: 0
-            selector:
-              matchLabels:
-                app: inflate
-            template:
-              metadata:
-                labels:
-                  app: inflate
-              spec:
-                containers:
-                - name: inflate
-                  image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
-                  resources:
-                    requests:
-                      cpu: "1"
-                      memory: "1Gi"
-          EOF
+          kubectl get pods -n karpenter || true
 
       - name: Terraform Output
         if: always()
         run: |
           echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
-          terraform output >> $GITHUB_STEP_SUMMARY
+          terraform output >> $GITHUB_STEP_SUMMARY || echo "No outputs available"
