@@ -7,7 +7,7 @@ provider "aws" {
   }
 }
 
-# Kubernetes provider - 配置将在 apply 时通过 EKS 输出动态设置
+# Kubernetes provider （保持不变，Helm 会自动读取它）
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
@@ -18,15 +18,10 @@ provider "kubernetes" {
   }
 }
 
-# Helm provider
+# Helm provider - 简化后的正确写法
 provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
-  }
+  debug = true
+  
+  # 彻底移除了 kubernetes {} 块
+  # Helm 会自动寻找并使用上面定义的全局 kubernetes provider 配置
 }

@@ -209,7 +209,7 @@ resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
 }
 
 # 保持节点的 Deployment - 免费套餐使用较小的资源请求
-resource "kubernetes_deployment" "keep_nodes" {
+resource "kubernetes_deployment_v1" "keep_nodes" {
   metadata {
     name      = "keep-nodes"
     namespace = "default"
