@@ -7,10 +7,7 @@ locals {
   azs = slice(data.aws_availability_zones.available.names, 0, 3)
 }
 
-# 获取当前 AWS 账号 ID
 data "aws_caller_identity" "current" {}
-
-# 获取当前 AWS 区域
 data "aws_region" "current" {}
 
 # 创建 VPC 模块
@@ -41,7 +38,6 @@ module "eks" {
   tags = var.tags
 }
 
-# 创建 Karpenter 模块
 module "karpenter" {
   source = "./modules/karpenter"
   cluster_name                = module.eks.cluster_name
@@ -59,6 +55,7 @@ module "karpenter" {
   karpenter_version   = var.karpenter_version
   
   tags = var.tags
+  
   depends_on = [
     module.eks
   ]
