@@ -1,13 +1,12 @@
-# AWS Provider 配置
+# AWS Provider 配置（保持不变）
 provider "aws" {
   region = var.aws_region
-
   default_tags {
     tags = var.tags
   }
 }
 
-# Kubernetes provider （保持不变，Helm 会自动读取它）
+# Kubernetes provider （保持不变，这是全局凭据的源头）
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority)
@@ -18,10 +17,10 @@ provider "kubernetes" {
   }
 }
 
-# Helm provider - 简化后的正确写法
+# Helm provider - 终极精简版
 provider "helm" {
   debug = true
   
-  # 彻底移除了 kubernetes {} 块
-  # Helm 会自动寻找并使用上面定义的全局 kubernetes provider 配置
+  # 里面什么都不写！
+  # 只要上面的 provider "kubernetes" 已经就绪，Helm 会自动读取全局配置。
 }
