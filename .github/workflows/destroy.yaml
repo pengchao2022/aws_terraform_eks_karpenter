@@ -19,9 +19,15 @@ on:
 
 env:
   TF_VERSION: 1.5.0
-  AWS_REGION: us-west-2
+  # 🌟 注意：这里帮你改回了前面 Deploy 流水线用的 us-east-1，如果是西2区请自己改回 us-west-2
+  AWS_REGION: us-east-1 
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
+
+# 🌟 终极修复：必须显式赋予读取 OIDC id-token 的权限，否则 AWS 认证必失败
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   terraform-destroy:
@@ -42,31 +48,42 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false # 🌟 关闭 wrapper 避免影响后面获取 output 的纯文本格式
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformDestroy
 
       - name: Initialize Terraform
         run: |
           terraform init \
             -backend-config="bucket=${{ env.STATE_BUCKET }}" \
             -backend-config="key=${{ env.STATE_KEY }}" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -reconfigure
 
       - name: Clean up Kubernetes resources first
         run: |
-          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
+          # 🌟 这里如果没有输出，直接 fallback 到你的固定集群名，确保清理不踩空
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "allen-eks-karpenter")
+          echo "Target cluster to clean: $CLUSTER_NAME"
+          
           if [ -n "$CLUSTER_NAME" ]; then
             aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME || true
             
-            kubectl delete nodepool --all --ignore-not-found
-            kubectl delete ec2nodeclass --all --ignore-not-found
-            kubectl delete deployment inflate --ignore-not-found
-            kubectl delete deployment keep-nodes --ignore-not-found
-            kubectl delete pvc --all --ignore-not-found
+            echo "Cleaning up Karpenter specific resources..."
+            kubectl delete nodepool --all --ignore-not-found --timeout=30s || true
+            kubectl delete ec2nodeclass --all --ignore-not-found --timeout=30s || true
+            kubectl delete deployment inflate --ignore-not-found || true
+            kubectl delete deployment keep-nodes --ignore-not-found || true
+            kubectl delete pvc --all --ignore-not-found || true
+            
+            # 🌟 额外补充：卸载 Helm 安装的 Karpenter 脑子，否则可能导致安全组或者子网因为残留机器删不掉！
+            helm uninstall karpenter -n karpenter || true
           fi
 
       - name: Terraform Destroy
