@@ -4,7 +4,6 @@ on:
   pull_request:
     types:
       - closed
-
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -63,40 +62,24 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      # 第一步：只部署 VPC 和 EKS
-      - name: Deploy VPC and EKS only
+      # 🚀 核心优化：直接一键全量 Apply
+      # Terraform 会自动计算：VPC -> EKS控制面 -> System托管节点 -> CoreDNS Add-on -> Karpenter
+      - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
-            -target=module.vpc \
-            -target=module.eks \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
 
-      # 等待 EKS 集群就绪
-      - name: Wait for EKS cluster
+      # 🔍 验证集群状态
+      - name: Verify Cluster and Nodes
         run: |
-          echo "Waiting for EKS cluster to be ready..."
-          aws eks wait cluster-active --name allen-eks-karpenter --region ${{ env.AWS_REGION }}
-          echo "EKS cluster is ready!"
-          
-          # 配置 kubectl
+          echo "Configuring kubectl..."
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
           
-          # 等待节点就绪（Karpenter 会创建节点）
-          echo "Waiting for nodes..."
-          sleep 60
-          kubectl get nodes || true
-
-      # 第二步：部署 Karpenter
-      - name: Deploy Karpenter
-        run: |
-          terraform apply -auto-approve \
-            -target=module.karpenter \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
-
-      - name: Verify Cluster
-        run: |
-          kubectl get nodes
-          kubectl get pods -n karpenter || true
+          echo "Checking system nodes..."
+          kubectl get nodes -o wide
+          
+          echo "Checking Karpenter deployment status..."
+          kubectl get pods -n karpenter -o wide || echo "Karpenter namespace or pods not found yet"
 
       - name: Terraform Output
         if: always()
