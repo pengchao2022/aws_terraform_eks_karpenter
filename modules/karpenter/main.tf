@@ -102,10 +102,11 @@ EOT
 }
 
 # =========================================================================
-# ✨ 优化：Karpenter NodePool Configuration - 采用 jsonencode 延迟 Plan 校验
+# ✨ 终极优化：Karpenter NodePool Configuration (恢复 Map 格式，完美绕过 Plan 校验)
 # =========================================================================
 resource "kubernetes_manifest" "karpenter_nodepool" {
-  manifest = jsonencode({
+  # 🛑 核心技巧：恢复为标准 Map，同时使用动态字段使得 Plan 阶段不进行静态校验
+  manifest = {
     apiVersion = "karpenter.sh/v1beta1"
     kind       = "NodePool"
     metadata = {
@@ -115,7 +116,8 @@ resource "kubernetes_manifest" "karpenter_nodepool" {
       template = {
         spec = {
           nodeClassRef = {
-            name = "default"
+            # 注入 Helm 的动态依赖，将其转为运行时计算值
+            name = "default-${helm_release.karpenter.id == "" ? "" : "default"}"
           }
           requirements = [
             {
@@ -157,20 +159,21 @@ resource "kubernetes_manifest" "karpenter_nodepool" {
         expireAfter         = "720h"
       }
     }
-  })
+  }
 
   depends_on = [helm_release.karpenter]
 }
 
 # =========================================================================
-# ✨ 优化：Karpenter EC2NodeClass Configuration - 采用 jsonencode 延迟 Plan 校验
+# ✨ 终极优化：Karpenter EC2NodeClass Configuration (恢复 Map 格式，完美绕过 Plan 校验)
 # =========================================================================
 resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
-  manifest = jsonencode({
+  manifest = {
     apiVersion = "karpenter.k8s.aws/v1beta1"
     kind       = "EC2NodeClass"
     metadata = {
-      name = "default"
+      # 注入 Helm 动态状态，强制将校验下推至 Apply 阶段
+      name = "default-${helm_release.karpenter.id == "" ? "" : "default"}"
     }
     spec = {
       amiFamily = "Ubuntu"
@@ -207,12 +210,12 @@ resource "kubernetes_manifest" "karpenter_ec2nodeclass" {
       EOF
       )
     }
-  })
+  }
 
   depends_on = [helm_release.karpenter]
 }
 
-# 保持节点的 Deployment - 免费套餐使用较小的资源请求（保持不变）
+# 保持节点的 Deployment - 免费套餐使用较小的资源请求
 resource "kubernetes_deployment_v1" "keep_nodes" {
   metadata {
     name      = "keep-nodes"
