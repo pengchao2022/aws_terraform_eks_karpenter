@@ -1,25 +1,13 @@
 name: Terraform Deploy EKS with Karpenter
 
 on:
-  push:
-    branches:
-      - main
-      - master
+  pull_request:
+    types:
+      - closed
     paths:
       - '**.tf'
       - '**.tfvars'
       - 'modules/**'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - staging
-          - prod
 
 env:
   TF_VERSION: 1.5.0
@@ -33,6 +21,7 @@ permissions:
 
 jobs:
   terraform-deploy:
+    if: github.event.pull_request.merged == true 
     name: Terraform Deploy
     runs-on: ubuntu-latest
     
