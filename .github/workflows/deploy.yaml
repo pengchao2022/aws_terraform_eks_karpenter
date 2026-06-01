@@ -62,26 +62,7 @@ jobs:
             -backend-config="encrypt=true" \
             -reconfigure
 
-      # 1️⃣ 第一步：确保底层硬件就绪（因为你之前跑成功了，这步现在会秒过刷新）
-      # 它会确保 VPC、EKS、系统节点、CoreDNS Add-on 全部牢固地写入 State 中
-      - name: Step 1 - Deploy Base Infrastructure
-        run: |
-          terraform apply -auto-approve \
-            -target=module.vpc \
-            -target=module.eks \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
-
-      # 2️⃣ 第二步：单独灌入 Karpenter 的 Helm 释放（核心改变！）
-      # 这一步会成功把 Karpenter 控制器和它附带的 CRD（NodePool, EC2NodeClass）强行安装进 K8s
-      - name: Step 2 - Install Karpenter Helm Release
-        run: |
-          terraform apply -auto-approve \
-            -target=module.karpenter.helm_release.karpenter \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
-
-      # 3️⃣ 第三步：全量无保留 Apply
-      # 此时底层有了、Karpenter 跑起来了、CRD 认得了，Terraform 扫描时畅通无阻，完美补齐自定义资源！
-      - name: Step 3 - Deploy Custom Resources & Verify
+      - name: Deploy Custom Resources & Verify
         run: |
           terraform apply -auto-approve \
             -var="environment=${{ github.event.inputs.environment || 'dev' }}"
