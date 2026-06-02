@@ -72,7 +72,7 @@ jobs:
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
           
           # 3. 改用 Karpenter 官方推荐的公共 OCI 仓库直连安装
-          # 🌟 核心修复点：将副本数设为 1，并强制移除或放宽导致 Pending 的污点和可用区硬性约束
+          # 🌟 修复点：去掉会引发 Helm 语法崩溃的空大括号，改用官方的标准配置对象注入
           helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
             --namespace karpenter --create-namespace \
             --version "1.0.6" \
@@ -85,7 +85,7 @@ jobs:
             --set controller.resources.limits.memory=512Mi \
             --set replicas=1 \
             --set webhook.enabled=false \
-            --set topologySpreadConstraints={} # 🌟 强行清空可用区强制打散约束，防止节点不够用导致 Pending
+            --set-json tolerations='[{"operator": "Exists"}]' # 🌟 降维打击：让 Karpenter 拥有最高容忍度，不管系统节点有什么污点，都能秒级塞进去！
 
           # 🌟 新增调试排查：先看一下 Karpenter 的 Pod 目前是什么状态，防止盲猜
           echo "Checking Karpenter Pods deployment status..."
