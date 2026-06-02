@@ -14,7 +14,7 @@ env:
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
 
-# allown OIDC token to be read for aws credentials
+# allow OIDC token to be read for aws credentials
 permissions:
   id-token: write
   contents: read
@@ -52,7 +52,7 @@ jobs:
             -reconfigure \
             -upgrade
 
-      - name: Pre-Destroy Cleanup (Kubernetes & Karpenter)
+      - name: Pre-Destroy Cleanup (Kubernetes, Karpenter & ArgoCD)
         run: |
           # get the eks cluster dynamicly
           CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "allen-eks-karpenter")
@@ -62,6 +62,17 @@ jobs:
           if aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME 2>/dev/null; then
             echo "Successfully connected to cluster. Starting graceful rollback..."
             
+            # uninstall argocd 
+            echo "Uninstalling ArgoCD via Helm (Releasing AWS LoadBalancer)..."
+            helm uninstall argocd -n argocd || true
+            
+            # give 30 senconds to wait the LB to cleanup
+            echo "Waiting for AWS LoadBalancer to be fully deleted from cloud infrastructure..."
+            sleep 30
+            
+            # force remove argocd namesapce
+            kubectl delete namespace argocd --ignore-not-found --timeout=30s || true
+
             # remove the pods
             echo "Deleting placeholder deployments..."
             kubectl delete deployment keep-nodes --ignore-not-found --timeout=30s || true
@@ -84,8 +95,8 @@ jobs:
             echo "Uninstalling Metrics Server via Helm..."
             helm uninstall metrics-server -n kube-system || true
             
-            # give the cluster 20 seconds to stop
-            echo "Waiting for cloud provider resources to settle down..."
+            # give time for the cloud resources to Cleanup
+            echo "Waiting for all cloud provider resources to settle down..."
             sleep 20
           else
             echo "Cluster already semi-destroyed, unresponsive or unreachable. Proceeding directly to Terraform destroy."
