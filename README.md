@@ -82,6 +82,16 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath={.data.pass
 ```
 ArgoCD default username is: admin
 
+## Upgrade EKS 
+- when you try to upgrade EKS you need to modified the following versions in your terrafrom tf files:
+
+  - eks cluster version
+  - vpc_cni_version
+  - coredns_version   
+  - kube_proxy_version 
+  - ami_type 
+
+
 
 
 
