@@ -71,14 +71,10 @@ jobs:
           # 2. 刷新本地 Kubeconfig 凭证
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
           
-          # 3. 安装 K8s 包管理器 Helm
-          helm repo add karpenter https://charts.karpenter.sh/
-          helm repo update
-          
-          # 4. 一键注入 Karpenter 软件大脑 (v0.37.0)
-          helm upgrade --install karpenter karpenter/karpenter \
+          # 3. 改用 Karpenter 官方推荐的公共 OCI 仓库直连安装
+          helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
             --namespace karpenter --create-namespace \
-            --version "0.37.0" \
+            --version "1.0.6" \
             --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${KARPENTER_ROLE_ARN} \
             --set settings.clusterName=${CLUSTER_NAME} \
             --set settings.clusterEndpoint=${CLUSTER_ENDPOINT} \
@@ -86,19 +82,18 @@ jobs:
             --set controller.resources.requests.memory=256Mi \
             --wait
 
-          # 5. 等待 Karpenter 专属的 CRD 资源在 K8s 集群中完全就绪
+          # 4. 确保 Karpenter v1 CRDs 完全就绪
+          echo "Waiting for Karpenter v1 CRDs to establish..."
           kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
 
-          # 6. 下发 EC2NodeClass：指定免费账户可用的 Ubuntu 镜像和子网安全组
-          cat <<EOF | kubectl apply -f -
-          apiVersion: karpenter.k8s.aws/v1beta1
+          # 5. 下发 EC2NodeClass（这里改用 <<-EOF，允许内部和结尾的 EOF 保持统一缩进）
+          cat <<-EOF | kubectl apply -f -
+          apiVersion: karpenter.k8s.aws/v1
           kind: EC2NodeClass
           metadata:
             name: default
           spec:
             amiFamily: Ubuntu
-            amiSelectorTerms:
-              - name: "ubuntu-eks-1.30-*" # 🌟 指定拉起你要求的 Ubuntu 节点
             role: "KarpenterNodeRole-${CLUSTER_NAME}"
             subnetSelectorTerms:
               - tags:
@@ -110,9 +105,9 @@ jobs:
               karpenter.sh/discovery: ${CLUSTER_NAME}
           EOF
 
-          # 7. 下发 NodePool：严格限制机型在 t3 免费/廉价额度内
-          cat <<EOF | kubectl apply -f -
-          apiVersion: karpenter.sh/v1beta1
+          # 6. 下发 NodePool
+          cat <<-EOF | kubectl apply -f -
+          apiVersion: karpenter.sh/v1
           kind: NodePool
           metadata:
             name: default
@@ -120,6 +115,8 @@ jobs:
             template:
               spec:
                 nodeClassRef:
+                  group: karpenter.k8s.aws
+                  kind: EC2NodeClass
                   name: default
                 requirements:
                   - key: kubernetes.io/arch
@@ -130,7 +127,7 @@ jobs:
                     values: ["linux"]
                   - key: karpenter.k8s.aws/instance-family
                     operator: In
-                    values: ["t3"] # 🌟 限制只用 t3 家族，防超支
+                    values: ["t3"]
                   - key: karpenter.k8s.aws/instance-size
                     operator: In
                     values: ["micro", "small", "medium"]
@@ -142,18 +139,18 @@ jobs:
               memory: 8Gi
             disruption:
               consolidationPolicy: WhenUnderutilized
-              expireAfter: 720h
+              consolidateAfter: 1m
           EOF
 
-          # 8. 自动扩容：创建占位 Deployment，强行逼迫 Karpenter 拉起 3 个真正的工作 Node
-          cat <<EOF | kubectl apply -f -
+          # 7. 创建占位 Deployment 触发动态扩容
+          cat <<-EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
           metadata:
             name: keep-nodes
             namespace: default
           spec:
-            replicas: 3 # 🌟 完美的 3 个 node 目标
+            replicas: 3
             selector:
               matchLabels:
                 app: keep-nodes
@@ -167,6 +164,6 @@ jobs:
                   image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
                   resources:
                     requests:
-                      cpu: "1" # 故意把 CPU 请求设为 1 核，让系统托管组塞不下，从而完美触发 Karpenter 扩容机制
+                      cpu: "1"
                       memory: 1Gi
           EOF
