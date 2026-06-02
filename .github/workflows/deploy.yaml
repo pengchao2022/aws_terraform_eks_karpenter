@@ -72,20 +72,33 @@ jobs:
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
           
           # 3. 改用 Karpenter 官方推荐的公共 OCI 仓库直连安装
+          # 🌟 修复点：去掉 --wait，改用手动带有 timeout 的 kubectl wait，并给 Pod 极致瘦身
           helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
             --namespace karpenter --create-namespace \
             --version "1.0.6" \
             --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${KARPENTER_ROLE_ARN} \
             --set settings.clusterName=${CLUSTER_NAME} \
             --set settings.clusterEndpoint=${CLUSTER_ENDPOINT} \
-            --set controller.resources.requests.cpu=100m \
-            --set controller.resources.requests.memory=256Mi \
-            --wait
+            --set controller.resources.requests.cpu=50m \
+            --set controller.resources.requests.memory=128Mi \
+            --set controller.resources.limits.cpu=200m \
+            --set controller.resources.limits.memory=512Mi
+
+          # 🌟 新增调试排查：先看一下 Karpenter 的 Pod 目前是什么状态，防止盲猜
+          echo "Checking Karpenter Pods deployment status..."
+          kubectl get pods -n karpenter
+          
+          # 🌟 修复点：给 Karpenter 软件大脑 5 分钟的宽裕时间在系统节点上冷启动和拉取镜像
+          echo "Waiting for Karpenter Controller to be fully Running..."
+          kubectl wait --namespace karpenter \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/name=karpenter \
+            --timeout=300s || (kubectl describe pods -n karpenter && exit 1)
 
           # 4. 确保 Karpenter v1 CRDs 完全就绪
           echo "Waiting for Karpenter v1 CRDs to establish..."
-          kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
-
+          kubectl wait --for condition=established --timeout=90s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
+          
           # 5. 下发 EC2NodeClass（这里改用 <<-EOF，允许内部和结尾的 EOF 保持统一缩进）
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1
