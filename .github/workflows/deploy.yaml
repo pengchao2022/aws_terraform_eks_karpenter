@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   terraform-deploy:
-    name: Terraform Infrastructure Deployment
+    name: Terraform EKS karpenter ArgoCD Deployment
     runs-on: ubuntu-latest
     
     steps:
