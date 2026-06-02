@@ -6,7 +6,11 @@ output "cluster_name" {
 output "cluster_endpoint" {
   description = "EKS cluster endpoint"
   value       = module.eks.cluster_endpoint
-  sensitive   = true
+}
+
+output "karpenter_role_arn" {
+  description = "Dynamic Karpenter IAM Role ARN for GitHub Actions"
+  value       = module.karpenter.karpenter_controller_role_arn
 }
 
 output "vpc_id" {
@@ -24,9 +28,10 @@ output "private_subnet_ids" {
   value       = module.vpc.private_subnet_ids
 }
 
+# 🌟 修复点：直接引用本地局部变量 local.azs，不再去 module.vpc 里瞎找，避免报错
 output "availability_zones" {
   description = "Availability zones used"
-  value       = module.vpc.availability_zones
+  value       = local.azs
 }
 
 output "configure_kubectl" {
@@ -34,12 +39,7 @@ output "configure_kubectl" {
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
 
-output "state_bucket" {
-  description = "S3 bucket for Terraform state"
-  value       = var.state_bucket_name
-}
-
 output "test_karpenter" {
   description = "Command to test Karpenter auto-scaling"
-  value       = "kubectl scale deployment inflate --replicas=5"
+  value       = "kubectl scale deployment keep-nodes --replicas=5"
 }

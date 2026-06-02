@@ -1,61 +1,45 @@
-# Karpenter Controller IAM Role
 resource "aws_iam_role" "karpenter_controller" {
   name = "${var.cluster_name}-karpenter-controller"
-
+  
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = var.openid_connect_provider_arn
-        }
-        Condition = {
-          StringEquals = {
-            "${replace(var.openid_connect_provider_url, "https://", "")}:aud" = "sts.amazonaws.com"
-            "${replace(var.openid_connect_provider_url, "https://", "")}:sub" = "system:serviceaccount:${var.namespace}:karpenter"
-          }
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = { Federated = var.openid_connect_provider_arn }
+      Condition = {
+        StringEquals = {
+          "${replace(var.openid_connect_provider_url, "https://", "")}:aud" = "sts.amazonaws.com"
+          "${replace(var.openid_connect_provider_url, "https://", "")}:sub" = "system:serviceaccount:${var.namespace}:karpenter"
         }
       }
-    ]
+    }]
   })
-
+  
   tags = var.tags
 }
 
 resource "aws_iam_policy" "karpenter_controller" {
   name = "${var.cluster_name}-karpenter-policy"
-
+  
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
         Action = [
-          "ec2:DescribeImages",
-          "ec2:DescribeInstanceTypes",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeLaunchTemplates",
-          "ec2:DescribeInstances",
-          "ec2:CreateFleet",
-          "ec2:CreateLaunchTemplate",
-          "ec2:CreateTags",
-          "ec2:RunInstances",
-          "ec2:TerminateInstances",
-          "ec2:DeleteLaunchTemplate",
-          "iam:PassRole",
-          "ssm:GetParameter"
+          "ec2:DescribeImages", "ec2:DescribeInstanceTypes", "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups", "ec2:DescribeLaunchTemplates", "ec2:DescribeInstances",
+          "ec2:CreateFleet", "ec2:CreateLaunchTemplate", "ec2:CreateTags",
+          "ec2:RunInstances", "ec2:TerminateInstances", "ec2:DeleteLaunchTemplate",
+          "iam:PassRole", "ssm:GetParameter"
         ]
         Resource = ["*"]
       },
-      {
-        Effect = "Allow"
-        Action = [
-          "eks:DescribeCluster"
-        ]
-        Resource = ["*"]
+      { 
+        Effect = "Allow", 
+        Action = ["eks:DescribeCluster"], 
+        Resource = ["*"] 
       }
     ]
   })
@@ -65,6 +49,3 @@ resource "aws_iam_role_policy_attachment" "karpenter_controller" {
   role       = aws_iam_role.karpenter_controller.name
   policy_arn = aws_iam_policy.karpenter_controller.arn
 }
-
-# 🛑 提示：原有的 helm_release.karpenter 资源已彻底移除，移交至 GitHub Actions 处理
-# 🛑 提示：原有的 kubernetes_deployment_v1.keep_nodes 资源已彻底移除，移交至 GitHub Actions 处理
