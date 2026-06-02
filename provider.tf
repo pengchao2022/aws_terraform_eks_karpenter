@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.80" # 强制使用新版，修复 EKS API 更新 Bug
+      version = "~> 5.80" 
     }
   }
 }
