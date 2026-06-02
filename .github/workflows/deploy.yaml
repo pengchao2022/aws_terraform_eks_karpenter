@@ -228,4 +228,7 @@ jobs:
           echo "======================================================================"
           echo "Run the following command to fetch the public domain(URL):"
           echo "kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo"
+          echo "ArgoCD default username is: admin"
+          echo "Run the following command to fetch the ArgoCD password:"
+          echo "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo"
           echo "======================================================================"
