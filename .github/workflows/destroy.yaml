@@ -14,7 +14,7 @@ env:
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
 
-# 🌟 核心权限声明：必须允许读取 OIDC Token 才能安全登录 AWS
+# allown OIDC token to be read for aws credentials
 permissions:
   id-token: write
   contents: read
@@ -23,7 +23,6 @@ jobs:
   terraform-destroy:
     name: Safe Infrastructure Destruction
     runs-on: ubuntu-latest
-    # 🌟 安全防御线：只有当手动输入的字符串完全等于 "DESTROY" 时才允许执行
     if: github.event.inputs.confirm == 'DESTROY'
     
     steps:
@@ -34,7 +33,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false # 关闭 wrapper 以便后面顺利读取状态
+          terraform_wrapper: false 
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,40 +54,37 @@ jobs:
 
       - name: Pre-Destroy Cleanup (Kubernetes & Karpenter)
         run: |
-          # 1. 动态获取当前的集群名称，防踩空
+          # get the eks cluster dynamicly
           CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "allen-eks-karpenter")
           echo "Target cluster to clean up: $CLUSTER_NAME"
           
-          # 2. 刷新 kubeconfig 凭证，尝试连接 K8s 
+          # update kubeconfig
           if aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME 2>/dev/null; then
             echo "Successfully connected to cluster. Starting graceful rollback..."
             
-            # 3. 删掉触发扩容的占位副本
+            # remove the pods
             echo "Deleting placeholder deployments..."
             kubectl delete deployment keep-nodes --ignore-not-found --timeout=30s || true
             
-            # 4. 彻底删除 Karpenter 节点池和节点类
-            # 🌟 优化点 1：将超时时间放大到 5 分钟，确保 AWS 有充足时间销毁物理 EC2 实例。
-            # 如果因为网络波动卡住，使用 || true 强制放行，绝不阻断流水线。
+            # force remove do not break the workflow using true
             echo "Tearing down Karpenter NodePools and EC2NodeClasses..."
             kubectl delete nodepool --all --ignore-not-found --timeout=5m || true
             kubectl delete ec2nodeclass --all --ignore-not-found --timeout=5m || true
             
-            # 🌟 优化点 2：增加兜底策略。万一有 NodePool 卡在 Terminating，强行抹去其 Finalizer 防止死锁。
             echo "Checking for stuck Karpenter resources..."
             for np in $(kubectl get nodepool -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
               kubectl patch nodepool $np -p '{"metadata":{"finalizers":null}}' --type=merge || true
             done
             
-            # 5. 用 Helm 彻底卸载 Karpenter 控制面
+            # remove karpenter using helm uninstall 
             echo "Uninstalling Karpenter controller via Helm..."
             helm uninstall karpenter -n karpenter || true
             
-            # 🌟 优化点 3：顺手卸载之前安装的 Metrics Server，释放占用的 AWS ENI 网卡资源，让基建强拆更丝滑。
+            # uninstall the metrics server
             echo "Uninstalling Metrics Server via Helm..."
             helm uninstall metrics-server -n kube-system || true
             
-            # 6. 给集群留出最后的 20 秒安息时间
+            # give the cluster 20 seconds to stop
             echo "Waiting for cloud provider resources to settle down..."
             sleep 20
           else
@@ -97,5 +93,5 @@ jobs:
 
       - name: Terraform Destroy
         run: |
-          # 🌟 终极强拆：清空所有 AWS 基建资产（VPC、EKS 托管组、安全组、网关等）
+          # clean up all the aws resources related to this project
           terraform destroy -auto-approve -input=false
