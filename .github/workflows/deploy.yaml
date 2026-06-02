@@ -15,7 +15,7 @@ env:
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
 
-# 🌟 核心安全加固：必须显式声明 OIDC 写入权限，否则 AWS 连不上
+# declare OIDC write privilige so that can connect to aws 
 permissions:
   id-token: write
   contents: read
@@ -33,7 +33,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false # 🌟 关闭 wrapper，确保能够以纯文本读取 terraform output
+          terraform_wrapper: false # close wrapper
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -50,7 +50,7 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -reconfigure \
-            -upgrade # 🌟 强力刷新缓存，彻底杜绝 Unexpected attribute 灵异报错
+            -upgrade # force refresh cache
 
       - name: Terraform Validate
         run: terraform validate
@@ -60,7 +60,7 @@ jobs:
 
       - name: Deploy & Configure Karpenter
         run: |
-          # 1. 动态捕获 Terraform 刚刚创建出来的集群资源（零硬编码）
+          # get the eks cluster info dynamicly
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           CLUSTER_ENDPOINT=$(terraform output -raw cluster_endpoint)
           KARPENTER_ROLE_ARN=$(terraform output -raw karpenter_role_arn)
@@ -68,11 +68,10 @@ jobs:
           echo "Connecting to Cluster: $CLUSTER_NAME"
           echo "Using Karpenter Role: $KARPENTER_ROLE_ARN"
           
-          # 2. 刷新本地 Kubeconfig 凭证
+          # update kubeconfig
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
           
-          # 3. 改用 Karpenter 官方推荐的公共 OCI 仓库直连安装
-          # 🌟 修复点：去掉会引发 Helm 语法崩溃的空大括号，改用官方的标准配置对象注入
+          # helm install using the OCI repo 
           helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
             --namespace karpenter --create-namespace \
             --version "1.0.6" \
@@ -85,24 +84,24 @@ jobs:
             --set controller.resources.limits.memory=512Mi \
             --set replicas=1 \
             --set webhook.enabled=false \
-            --set-json tolerations='[{"operator": "Exists"}]' # 🌟 降维打击：让 Karpenter 拥有最高容忍度，不管系统节点有什么污点，都能秒级塞进去！
+            --set-json tolerations='[{"operator": "Exists"}]' 
 
-          # 🌟 新增调试排查：先看一下 Karpenter 的 Pod 目前是什么状态，防止盲猜
+          # show the kapenter pod status
           echo "Checking Karpenter Pods deployment status..."
           kubectl get pods -n karpenter
           
-          # 🌟 修复点：给 Karpenter 软件大脑 5 分钟的宽裕时间在系统节点上冷启动和拉取镜像
+          # karpenter wait 5 minutes
           echo "Waiting for Karpenter Controller to be fully Running..."
           kubectl wait --namespace karpenter \
             --for=condition=ready pod \
             --selector=app.kubernetes.io/name=karpenter \
             --timeout=300s || (kubectl describe pods -n karpenter && exit 1)
 
-          # 4. 确保 Karpenter v1 CRDs 完全就绪
+          # make sure karpenter CRDs is ready
           echo "Waiting for Karpenter v1 CRDs to establish..."
           kubectl wait --for condition=established --timeout=90s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
 
-          # 5. 🌟 完美适配 v1.0.x 的 Ubuntu 声明（使用 Custom + amiSelectorTerms）
+          # create karpenter file
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1
           kind: EC2NodeClass
@@ -112,8 +111,8 @@ jobs:
             amiFamily: Custom
             role: "KarpenterNodeRole-${CLUSTER_NAME}"
             amiSelectorTerms:
-              - name: "ubuntu-eks-1.30-*" # 🌟 精准匹配 AWS 官方发布的 Ubuntu K8s 1.30 优化版镜像
-                owner: "099720109477"     # 🌟 Canonical (Ubuntu 官方在 AWS 的账号 ID)，确保绝对安全正版
+              - name: "ubuntu-eks-1.30-*" # using the aws official Ubuntu K8s 1.30 image
+                owner: "099720109477"     # Canonical ubuntu
             subnetSelectorTerms:
               - tags:
                   karpenter.sh/discovery: ${CLUSTER_NAME}
@@ -124,7 +123,7 @@ jobs:
               karpenter.sh/discovery: ${CLUSTER_NAME}
           EOF
 
-          # 6. 🌟 下发 NodePool：完美对齐 v1 正式版的 Disruption 缩容策略参数
+          # create NodePool file
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.sh/v1
           kind: NodePool
@@ -157,11 +156,11 @@ jobs:
               cpu: "6"
               memory: 4Gi
             disruption:
-              consolidationPolicy: WhenEmptyOrUnderutilized # 🌟 核心修复：修改为 v1 官方支持的标准枚举值
+              consolidationPolicy: WhenEmptyOrUnderutilized 
               consolidateAfter: 1m
           EOF
 
-          # 7. 🌟 创建占位 Deployment：严格对齐格式，强行逼迫 Karpenter 拉起 3 个真正的 Ubuntu Node
+          # create deployment file
           cat <<-EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
