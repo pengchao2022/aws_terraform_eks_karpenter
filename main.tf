@@ -24,6 +24,9 @@ module "eks" {
   public_subnet_ids   = module.vpc.public_subnet_ids
   tags                = var.tags
   desired_nodes       = var.desired_nodes
+  vpc_cni_version    = var.vpc_cni_version
+  coredns_version    = var.coredns_version
+  kube_proxy_version = var.kube_proxy_version
 }
 
 # permission Karpenter-Specific AWS IAM Roles and Policies

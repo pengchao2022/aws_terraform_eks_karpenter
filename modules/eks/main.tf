@@ -67,7 +67,7 @@ resource "aws_eks_node_group" "system" {
     min_size     = var.desired_nodes
   }
 
-  ami_type       = "AL2_x86_64"
+  ami_type       = "AL2023_x86_64_STANDARD"
   instance_types = ["t3.small"]
 
   labels = {
@@ -88,6 +88,7 @@ resource "aws_eks_node_group" "system" {
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
+  addon_version               = var.coredns_version 
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
   depends_on                  = [aws_eks_node_group.system]
@@ -96,6 +97,7 @@ resource "aws_eks_addon" "coredns" {
 resource "aws_eks_addon" "kube_proxy" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "kube-proxy"
+  addon_version               = var.kube_proxy_version 
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
   depends_on                  = [aws_eks_node_group.system]
@@ -104,6 +106,7 @@ resource "aws_eks_addon" "kube_proxy" {
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "vpc-cni"
+  addon_version               = var.vpc_cni_version 
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
   depends_on                  = [aws_eks_cluster.this, aws_iam_role_policy_attachment.karpenter_node]
