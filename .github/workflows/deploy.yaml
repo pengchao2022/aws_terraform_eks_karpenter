@@ -124,7 +124,7 @@ jobs:
               karpenter.sh/discovery: ${CLUSTER_NAME}
           EOF
 
-          # 6. 🌟 下发 NodePool：完美对齐缩进，确保 YAML 语法无瑕疵
+          # 6. 🌟 下发 NodePool：完美对齐 v1 正式版的 Disruption 缩容策略参数
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.sh/v1
           kind: NodePool
@@ -154,10 +154,10 @@ jobs:
                     operator: In
                     values: ["on-demand"]
             limits:
-              cpu: "4"
-              memory: 8Gi
+              cpu: "6"
+              memory: 4Gi
             disruption:
-              consolidationPolicy: WhenUnderutilized
+              consolidationPolicy: WhenEmptyOrUnderutilized # 🌟 核心修复：修改为 v1 官方支持的标准枚举值
               consolidateAfter: 1m
           EOF
 
