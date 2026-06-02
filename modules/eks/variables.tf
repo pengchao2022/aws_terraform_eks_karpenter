@@ -33,3 +33,8 @@ variable "tags" {
   description = "A standard map of resource tags inherited from the root module to enforce unified resource categorization."
   default     = {}
 }
+
+variable "desired_nodes" {
+  type        = number
+  description = "The target number of managed system worker nodes for the EKS cluster control plane infrastructure."
+}
