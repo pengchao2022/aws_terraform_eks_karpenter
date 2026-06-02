@@ -1,27 +1,19 @@
 output "cluster_name" {
-  value = aws_eks_cluster.this.name
+  description = "The exact name of the provisioned EKS cluster, utilized by downstream modules and helper scripts."
+  value       = aws_eks_cluster.this.name
 }
 
 output "cluster_endpoint" {
-  value = aws_eks_cluster.this.endpoint
-}
-
-output "cluster_certificate_authority" {
-  value = aws_eks_cluster.this.certificate_authority[0].data
+  description = "The technical URL endpoint for the Kubernetes API server, used by kubectl, Helm, and Karpenter to communicate with the cluster."
+  value       = aws_eks_cluster.this.endpoint
 }
 
 output "oidc_provider_arn" {
-  value = aws_iam_openid_connect_provider.eks.arn
+  description = "The Amazon Resource Name (ARN) of the OpenID Connect (OIDC) identity provider associated with the EKS cluster. Critical for IRSA configurations."
+  value       = aws_iam_openid_connect_provider.eks.arn
 }
 
 output "oidc_provider_url" {
-  value = aws_iam_openid_connect_provider.eks.url
-}
-
-output "karpenter_instance_profile" {
-  value = aws_iam_instance_profile.karpenter.name
-}
-
-output "karpenter_node_role_name" {
-  value = aws_iam_role.karpenter_node_role.name
+  description = "The issuer URL of the OpenID Connect (OIDC) identity provider, used to cross-reference Kubernetes service accounts with AWS IAM roles."
+  value       = aws_iam_openid_connect_provider.eks.url
 }

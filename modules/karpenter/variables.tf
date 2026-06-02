@@ -1,79 +1,31 @@
 variable "cluster_name" {
-  description = "EKS cluster name"
   type        = string
-  default = "allen-eks-karpenter"
-}
-
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "cluster_endpoint" {
-  description = "EKS cluster endpoint"
-  type        = string
-}
-
-variable "cluster_certificate_authority" {
-  description = "EKS cluster CA certificate"
-  type        = string
+  description = "The name of the EKS cluster"
 }
 
 variable "openid_connect_provider_arn" {
-  description = "OIDC Provider ARN"
   type        = string
+  description = "The ARN of the OIDC Provider for the EKS cluster"
 }
 
 variable "openid_connect_provider_url" {
-  description = "OIDC Provider URL"
   type        = string
+  description = "The URL of the OIDC Provider for the EKS cluster"
 }
 
 variable "namespace" {
-  description = "Karpenter namespace"
   type        = string
+  description = "The Kubernetes namespace where Karpenter will be deployed"
   default     = "karpenter"
 }
 
-variable "karpenter_version" {
-  description = "Karpenter Helm chart version"
+variable "cluster_endpoint" {
   type        = string
-  default     = "0.16.3"
-}
-
-variable "instance_families" {
-  description = "Allowed EC2 instance families"
-  type        = list(string)
-  default     = ["t2", "t3"]
-}
-
-variable "instance_sizes" {
-  description = "Allowed EC2 instance sizes"
-  type        = list(string)
-  default     = ["micro", "small"]
-}
-
-variable "architecture" {
-  description = "Instance architecture"
-  type        = string
-  default     = "amd64"
-}
-
-variable "kubernetes_version" {
-  description = "Kubernetes version for AMI selection"
-  type        = string
-  default     = "1.29"
-}
-
-variable "desired_nodes" {
-  description = "Desired number of nodes to keep running"
-  type        = number
-  default     = 3
+  description = "The endpoint of the EKS cluster"
 }
 
 variable "tags" {
-  description = "Common tags"
   type        = map(string)
+  description = "A map of tags to assign to the resources"
   default     = {}
 }

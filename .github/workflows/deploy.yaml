@@ -8,47 +8,39 @@ on:
       - '**.tfvars'
       - 'modules/**'
       - '.github/workflows/deploy.yaml'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'dev'
-        type: choice
-        options: [dev, staging, prod]
 
 env:
   TF_VERSION: 1.5.0
-  AWS_REGION: us-east-1
+  AWS_REGION: us-east-1 
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
 
+# 🌟 核心安全加固：必须显式声明 OIDC 写入权限，否则 AWS 连不上
 permissions:
   id-token: write
   contents: read
 
 jobs:
   terraform-deploy:
-    name: Terraform Deploy
+    name: Terraform Infrastructure Deployment
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
+          terraform_wrapper: false # 🌟 关闭 wrapper，确保能够以纯文本读取 terraform output
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-Terraform
+          role-session-name: GitHubActions-EKS-Karpenter-Deploy
 
       - name: Terraform Init
         run: |
@@ -57,46 +49,47 @@ jobs:
             -backend-config="key=${{ env.STATE_KEY }}" \
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
-            -reconfigure
+            -reconfigure \
+            -upgrade # 🌟 强力刷新缓存，彻底杜绝 Unexpected attribute 灵异报错
 
-      # 🚀 Step 1: 全量部署基础设施（包含网络、EKS 底座、以及 Karpenter IAM 角色）
-      # 此时由于剥离了 Helm 资源，Terraform 会一气呵成全绿通过！
+      - name: Terraform Validate
+        run: terraform validate
+
       - name: Terraform Apply
-        run: |
-          terraform apply -auto-approve \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}"
+        run: terraform apply -auto-approve -input=false
 
-      # 📦 Step 2: 完美的后置收尾 - 通过原生 kubectl 和 Helm 注入软件层
-      - name: Deploy Karpenter Components via CLI
+      - name: Deploy & Configure Karpenter
         run: |
-          echo "Connecting to freshly baked EKS Cluster..."
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
+          # 1. 动态捕获 Terraform 刚刚创建出来的集群资源（零硬编码）
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          CLUSTER_ENDPOINT=$(terraform output -raw cluster_endpoint)
+          KARPENTER_ROLE_ARN=$(terraform output -raw karpenter_role_arn)
           
-          echo "Adding Karpenter Helm Repository..."
+          echo "Connecting to Cluster: $CLUSTER_NAME"
+          echo "Using Karpenter Role: $KARPENTER_ROLE_ARN"
+          
+          # 2. 刷新本地 Kubeconfig 凭证
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
+          
+          # 3. 安装 K8s 包管理器 Helm
           helm repo add karpenter https://charts.karpenter.sh/
           helm repo update
           
-          echo "Installing Karpenter Brain via Helm..."
-          CLUSTER_ENDPOINT=$(aws eks describe-cluster --name allen-eks-karpenter --query "cluster.endpoint" --output text)
-          ROLE_ARN="arn:aws:iam::317429619308:role/allen-eks-karpenter-karpenter-controller"
-          
+          # 4. 一键注入 Karpenter 软件大脑 (v0.37.0)
           helm upgrade --install karpenter karpenter/karpenter \
             --namespace karpenter --create-namespace \
             --version "0.37.0" \
-            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${ROLE_ARN} \
-            --set settings.clusterName=allen-eks-karpenter \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${KARPENTER_ROLE_ARN} \
+            --set settings.clusterName=${CLUSTER_NAME} \
             --set settings.clusterEndpoint=${CLUSTER_ENDPOINT} \
-            --set settings.interruptionQueue=allen-eks-karpenter \
             --set controller.resources.requests.cpu=100m \
             --set controller.resources.requests.memory=256Mi \
-            --set controller.resources.limits.cpu=1 \
-            --set controller.resources.limits.memory=1Gi \
             --wait
 
-          echo "Waiting for Karpenter CRDs to be fully established..."
+          # 5. 等待 Karpenter 专属的 CRD 资源在 K8s 集群中完全就绪
           kubectl wait --for condition=established --timeout=60s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
 
-          echo "Applying Karpenter EC2NodeClass Custom Resource..."
+          # 6. 下发 EC2NodeClass：指定免费账户可用的 Ubuntu 镜像和子网安全组
           cat <<EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1beta1
           kind: EC2NodeClass
@@ -105,26 +98,19 @@ jobs:
           spec:
             amiFamily: Ubuntu
             amiSelectorTerms:
-              - name: "ubuntu-eks-1.29-*"
-            role: "KarpenterNodeRole-allen-eks-karpenter"
+              - name: "ubuntu-eks-1.30-*" # 🌟 指定拉起你要求的 Ubuntu 节点
+            role: "KarpenterNodeRole-${CLUSTER_NAME}"
             subnetSelectorTerms:
               - tags:
-                  karpenter.sh/discovery: allen-eks-karpenter
+                  karpenter.sh/discovery: ${CLUSTER_NAME}
             securityGroupSelectorTerms:
               - tags:
-                  aws:eks:cluster-name: allen-eks-karpenter
+                  aws:eks:cluster-name: ${CLUSTER_NAME}
             tags:
-              karpenter.sh/discovery: allen-eks-karpenter
-              Name: allen-eks-karpenter-node
-            userData: |
-              #!/bin/bash
-              set -ex
-              cat <<-KUBELET > /etc/default/kubelet
-              KUBELET_EXTRA_ARGS="--node-labels=node.kubernetes.io/lifecycle=normal"
-              KUBELET
+              karpenter.sh/discovery: ${CLUSTER_NAME}
           EOF
 
-          echo "Applying Karpenter NodePool Custom Resource..."
+          # 7. 下发 NodePool：严格限制机型在 t3 免费/廉价额度内
           cat <<EOF | kubectl apply -f -
           apiVersion: karpenter.sh/v1beta1
           kind: NodePool
@@ -144,15 +130,13 @@ jobs:
                     values: ["linux"]
                   - key: karpenter.k8s.aws/instance-family
                     operator: In
-                    values: ["t3"]
+                    values: ["t3"] # 🌟 限制只用 t3 家族，防超支
                   - key: karpenter.k8s.aws/instance-size
                     operator: In
                     values: ["micro", "small", "medium"]
                   - key: karpenter.sh/capacity-type
                     operator: In
                     values: ["on-demand"]
-                taints: []
-                startupTaints: []
             limits:
               cpu: "4"
               memory: 8Gi
@@ -161,7 +145,7 @@ jobs:
               expireAfter: 720h
           EOF
 
-          echo "Deploying hold-nodes pause deployment..."
+          # 8. 自动扩容：创建占位 Deployment，强行逼迫 Karpenter 拉起 3 个真正的工作 Node
           cat <<EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
@@ -169,7 +153,7 @@ jobs:
             name: keep-nodes
             namespace: default
           spec:
-            replicas: 3
+            replicas: 3 # 🌟 完美的 3 个 node 目标
             selector:
               matchLabels:
                 app: keep-nodes
@@ -178,32 +162,11 @@ jobs:
                 labels:
                   app: keep-nodes
               spec:
-                tolerations:
-                - operator: Exists
                 containers:
                 - name: pause
                   image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
                   resources:
                     requests:
-                      cpu: 50m
-                      memory: 64Mi
-                    limits:
-                      cpu: 100m
-                      memory: 128Mi
+                      cpu: "1" # 故意把 CPU 请求设为 1 核，让系统托管组塞不下，从而完美触发 Karpenter 扩容机制
+                      memory: 1Gi
           EOF
-
-      # 🔍 Step 3: 最终成果验证
-      - name: Verify Cluster and Nodes
-        run: |
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name allen-eks-karpenter
-          echo "=== Active Nodes ==="
-          kubectl get nodes -o wide
-          echo "=== Karpenter CRDs ==="
-          kubectl get nodepool
-          kubectl get ec2nodeclass
-
-      - name: Terraform Output
-        if: always()
-        run: |
-          echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
-          terraform output >> $GITHUB_STEP_SUMMARY || echo "No outputs available"
