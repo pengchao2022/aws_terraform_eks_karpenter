@@ -45,6 +45,30 @@ terraform {
     encrypt        = true
   }
 }
+```
+
+## Connect to EKS cluster
+
+```shell
+aws eks update-kubeconfig --region us-east-1 --name allen-eks-karpenter
+
+```
+## Check the EKS nodes
+
+```shell
+allen@allens-MacBook-Pro devops % kubectl get nodes
+NAME                          STATUS   ROLES    AGE   VERSION
+ip-10-0-11-142.ec2.internal   Ready    <none>   17m   v1.30.14-eks-ecaa3a6
+ip-10-0-12-114.ec2.internal   Ready    <none>   17m   v1.30.14-eks-ecaa3a6
+ip-10-0-13-234.ec2.internal   Ready    <none>   17m   v1.30.14-eks-ecaa3a6
+```
+## Check the karpenter pods
+
+```shell
+allen@allens-MacBook-Pro devops % kubectl get pods -n karpenter
+NAME                         READY   STATUS    RESTARTS   AGE
+karpenter-56fd6c799f-rh7sl   1/1     Running   0          16m
+```
 
 
 
