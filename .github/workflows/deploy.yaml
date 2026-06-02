@@ -186,3 +186,16 @@ jobs:
                       cpu: "1"
                       memory: 1Gi
           EOF
+
+     
+      - name: Deploy Metrics Server
+        run: |
+          echo "Installing Metrics Server via Helm..."
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+          helm repo update
+          
+          helm upgrade --install metrics-server metrics-server/metrics-server \
+            --namespace kube-system \
+            --set args='{--kubelet-insecure-tls}' \
+            --atomic \
+            --timeout 5m
