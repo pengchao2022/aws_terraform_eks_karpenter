@@ -28,7 +28,6 @@ output "private_subnet_ids" {
   value       = module.vpc.private_subnet_ids
 }
 
-# 🌟 修复点：直接引用本地局部变量 local.azs，不再去 module.vpc 里瞎找，避免报错
 output "availability_zones" {
   description = "Availability zones used"
   value       = local.azs

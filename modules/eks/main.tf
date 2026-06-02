@@ -1,6 +1,4 @@
-# ========================================================
-# EKS 核心集群角色
-# ========================================================
+# EKS cluster iam role
 resource "aws_iam_role" "eks_cluster_role" {
   name = "${var.cluster_name}-cluster-role"
   assume_role_policy = jsonencode({
@@ -15,13 +13,11 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-# ========================================================
-# EKS 集群本体 (锁定 1.30)
-# ========================================================
+# create EKS cluster
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster_role.arn
-  version  = "1.30" # 保持写死 1.30 杜绝降级隐患
+  version  = var.cluster_version 
 
   vpc_config {
     subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
@@ -29,7 +25,7 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = true
   }
 
-  # 🌟 修复点 1：开启 API 访问条目认证，并自动允许创建者（GitHub Actions）拥有管理员权限
+  # allow API access 
   access_config {
     authentication_mode                         = "API_AND_CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true
@@ -37,7 +33,7 @@ resource "aws_eks_cluster" "this" {
 
   bootstrap_self_managed_addons = false
 
-  # 🌟 修复点 2：必须把 access_config 从 ignore_changes 中删掉，否则上方新加的配置不会生效！
+  # ignore setting in EKS 
   lifecycle {
     ignore_changes = [
       bootstrap_self_managed_addons
@@ -47,7 +43,7 @@ resource "aws_eks_cluster" "this" {
   depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
 }
 
-# OIDC 用于 ServiceAccount 鉴权
+# OIDC is used for serviceaccount 
 data "tls_certificate" "eks" { url = aws_eks_cluster.this.identity[0].oidc[0].issuer }
 
 resource "aws_iam_openid_connect_provider" "eks" {
@@ -57,9 +53,8 @@ resource "aws_iam_openid_connect_provider" "eks" {
   tags            = var.tags
 }
 
-# ========================================================
-# 托管系统组件的小型节点组 (自适应变量控制)
-# ========================================================
+# prepare a compute resources for karpenter pods to run
+# ASG is just for karpenter controller pods running 
 resource "aws_eks_node_group" "system" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${var.cluster_name}-system-nodes"
@@ -89,9 +84,7 @@ resource "aws_eks_node_group" "system" {
   ]
 }
 
-# ========================================================
-# EKS Add-ons 插件自动化配置
-# ========================================================
+# eks adds-on configration
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
@@ -116,9 +109,7 @@ resource "aws_eks_addon" "vpc_cni" {
   depends_on                  = [aws_eks_cluster.this, aws_iam_role_policy_attachment.karpenter_node]
 }
 
-# ========================================================
-# 基础节点 IAM 角色与实例配置文件
-# ========================================================
+# node iam role and policy
 resource "aws_iam_role" "karpenter_node_role" {
   name = "KarpenterNodeRole-${var.cluster_name}"
   assume_role_policy = jsonencode({
@@ -144,21 +135,17 @@ resource "aws_iam_instance_profile" "karpenter" {
   role = aws_iam_role.karpenter_node_role.name
 }
 
-# ========================================================
-# 🌟 新增：为 Mac 本地 User/Allen 自动打通超级管理员通道
-# ========================================================
+# added IAM user arn here if you have several users needs to access eks just add user arn here
 resource "aws_eks_access_entry" "allen" {
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = "arn:aws:iam::317429619308:user/allen"
+  principal_arn = "arn:aws:iam::317429619308:user/allen" # IAM user arn
   type          = "STANDARD"
 }
 
-# ========================================================
-# 🌟 修复格式：为你（user/allen）绑定官方最强的超级管理员策略
-# ========================================================
+# allow IAM user to access eks cluster
 resource "aws_eks_access_policy_association" "allen_admin" {
   cluster_name  = aws_eks_cluster.this.name
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" # 🚀 黄金修复：改用 EKS 专属的官方内置访问策略 ARN
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" 
   principal_arn = "arn:aws:iam::317429619308:user/allen"
 
   access_scope {
