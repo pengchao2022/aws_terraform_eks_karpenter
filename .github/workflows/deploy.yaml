@@ -72,7 +72,7 @@ jobs:
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME
           
           # 3. 改用 Karpenter 官方推荐的公共 OCI 仓库直连安装
-          # 🌟 修复点：去掉 --wait，改用手动带有 timeout 的 kubectl wait，并给 Pod 极致瘦身
+          # 🌟 核心修复点：将副本数设为 1，并强制移除或放宽导致 Pending 的污点和可用区硬性约束
           helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
             --namespace karpenter --create-namespace \
             --version "1.0.6" \
@@ -82,7 +82,10 @@ jobs:
             --set controller.resources.requests.cpu=50m \
             --set controller.resources.requests.memory=128Mi \
             --set controller.resources.limits.cpu=200m \
-            --set controller.resources.limits.memory=512Mi
+            --set controller.resources.limits.memory=512Mi \
+            --set replicas=1 \
+            --set webhook.enabled=false \
+            --set topologySpreadConstraints={} # 🌟 强行清空可用区强制打散约束，防止节点不够用导致 Pending
 
           # 🌟 新增调试排查：先看一下 Karpenter 的 Pod 目前是什么状态，防止盲猜
           echo "Checking Karpenter Pods deployment status..."
@@ -98,7 +101,7 @@ jobs:
           # 4. 确保 Karpenter v1 CRDs 完全就绪
           echo "Waiting for Karpenter v1 CRDs to establish..."
           kubectl wait --for condition=established --timeout=90s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
-          
+
           # 5. 下发 EC2NodeClass（这里改用 <<-EOF，允许内部和结尾的 EOF 保持统一缩进）
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1
