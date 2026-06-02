@@ -102,15 +102,18 @@ jobs:
           echo "Waiting for Karpenter v1 CRDs to establish..."
           kubectl wait --for condition=established --timeout=90s crd/nodepools.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws
 
-          # 5. 下发 EC2NodeClass（这里改用 <<-EOF，允许内部和结尾的 EOF 保持统一缩进）
+          # 5. 🌟 完美适配 v1.0.x 的 Ubuntu 声明（使用 Custom + amiSelectorTerms）
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.k8s.aws/v1
           kind: EC2NodeClass
           metadata:
             name: default
           spec:
-            amiFamily: Ubuntu
+            amiFamily: Custom
             role: "KarpenterNodeRole-${CLUSTER_NAME}"
+            amiSelectorTerms:
+              - name: "ubuntu-eks-1.30-*" # 🌟 精准匹配 AWS 官方发布的 Ubuntu K8s 1.30 优化版镜像
+                owner: "099720109477"     # 🌟 Canonical (Ubuntu 官方在 AWS 的账号 ID)，确保绝对安全正版
             subnetSelectorTerms:
               - tags:
                   karpenter.sh/discovery: ${CLUSTER_NAME}
@@ -156,7 +159,7 @@ jobs:
             disruption:
               consolidationPolicy: WhenUnderutilized
               consolidateAfter: 1m
-          EOF
+            EOF
 
           # 7. 创建占位 Deployment 触发动态扩容
           cat <<-EOF | kubectl apply -f -
@@ -182,4 +185,4 @@ jobs:
                     requests:
                       cpu: "1"
                       memory: 1Gi
-          EOF
+            EOF
