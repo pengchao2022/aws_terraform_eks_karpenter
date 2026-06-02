@@ -153,9 +153,12 @@ resource "aws_eks_access_entry" "allen" {
   type          = "STANDARD"
 }
 
+# ========================================================
+# 🌟 修复格式：为你（user/allen）绑定官方最强的超级管理员策略
+# ========================================================
 resource "aws_eks_access_policy_association" "allen_admin" {
   cluster_name  = aws_eks_cluster.this.name
-  policy_arn    = "arn:aws:iam::aws:policy/AmazonEKSClusterAdminPolicy"
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" # 🚀 黄金修复：改用 EKS 专属的官方内置访问策略 ARN
   principal_arn = "arn:aws:iam::317429619308:user/allen"
 
   access_scope {
