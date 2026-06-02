@@ -10,7 +10,7 @@ resource "aws_internet_gateway" "this" {
   tags   = merge(var.tags, { Name = "${var.cluster_name}-igw" })
 }
 
-# 3 个公有子网
+# 3 public subnets
 resource "aws_subnet" "public" {
   count                   = length(var.public_subnets)
   vpc_id                  = aws_vpc.this.id
@@ -24,7 +24,7 @@ resource "aws_subnet" "public" {
   })
 }
 
-# 3 个私有子网 (带有 Karpenter 发现标签)
+# 3 private subnets
 resource "aws_subnet" "private" {
   count             = length(var.private_subnets)
   vpc_id            = aws_vpc.this.id
@@ -38,7 +38,7 @@ resource "aws_subnet" "private" {
   })
 }
 
-# 免费账户省钱：3个子网共享 1 个单实例 NAT Gateway
+# free account share 1 nat gateway
 resource "aws_eip" "nat" {
   domain = "vpc"
   tags   = merge(var.tags, { Name = "${var.cluster_name}-nat-eip" })
@@ -51,7 +51,7 @@ resource "aws_nat_gateway" "this" {
   depends_on    = [aws_internet_gateway.this]
 }
 
-# 🌟 修复点 1：展开公有路由表的内联路由，使用标准多行换行
+# public route table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
@@ -63,7 +63,7 @@ resource "aws_route_table" "public" {
   tags = merge(var.tags, { Name = "${var.cluster_name}-public-rt" })
 }
 
-# 🌟 修复点 2：展开私有路由表的内联路由，使用标准多行换行
+# private route table
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
 
