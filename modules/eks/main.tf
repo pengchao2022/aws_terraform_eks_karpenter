@@ -68,7 +68,7 @@ resource "aws_eks_node_group" "system" {
   }
 
   ami_type       = "AL2_x86_64"
-  instance_types = ["t3.micro"]
+  instance_types = ["t3.small"]
 
   labels = {
     "role" = "system"
