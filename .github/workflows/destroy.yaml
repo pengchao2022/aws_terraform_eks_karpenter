@@ -10,7 +10,7 @@ on:
 
 env:
   TF_VERSION: 1.5.0
-  AWS_REGION: us-east-1 # 🌟 保持与部署流水线一致的东1区
+  AWS_REGION: us-east-1 
   STATE_BUCKET: pengchao2022-terraform-state
   STATE_KEY: eks-karpenter/terraform.tfstate
 
@@ -68,20 +68,31 @@ jobs:
             kubectl delete deployment keep-nodes --ignore-not-found --timeout=30s || true
             
             # 4. 彻底删除 Karpenter 节点池和节点类
-            # 🌟 这一步极其关键！Karpenter 收到删除信号后，会自动去 AWS 销毁它拉起的所有 Ubuntu EC2 实例。
+            # 🌟 优化点 1：将超时时间放大到 5 分钟，确保 AWS 有充足时间销毁物理 EC2 实例。
+            # 如果因为网络波动卡住，使用 || true 强制放行，绝不阻断流水线。
             echo "Tearing down Karpenter NodePools and EC2NodeClasses..."
-            kubectl delete nodepool --all --ignore-not-found --timeout=60s || true
-            kubectl delete ec2nodeclass --all --ignore-not-found --timeout=60s || true
+            kubectl delete nodepool --all --ignore-not-found --timeout=5m || true
+            kubectl delete ec2nodeclass --all --ignore-not-found --timeout=5m || true
             
-            # 5. 等待 30 秒给 AWS EC2 足够的时间下线，防止网络残留死锁
-            echo "Waiting for dynamic EC2 nodes to terminate..."
-            sleep 30
+            # 🌟 优化点 2：增加兜底策略。万一有 NodePool 卡在 Terminating，强行抹去其 Finalizer 防止死锁。
+            echo "Checking for stuck Karpenter resources..."
+            for np in $(kubectl get nodepool -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              kubectl patch nodepool $np -p '{"metadata":{"finalizers":null}}' --type=merge || true
+            done
             
-            # 6. 用 Helm 彻底卸载 Karpenter 控制面
+            # 5. 用 Helm 彻底卸载 Karpenter 控制面
             echo "Uninstalling Karpenter controller via Helm..."
             helm uninstall karpenter -n karpenter || true
+            
+            # 🌟 优化点 3：顺手卸载之前安装的 Metrics Server，释放占用的 AWS ENI 网卡资源，让基建强拆更丝滑。
+            echo "Uninstalling Metrics Server via Helm..."
+            helm uninstall metrics-server -n kube-system || true
+            
+            # 6. 给集群留出最后的 20 秒安息时间
+            echo "Waiting for cloud provider resources to settle down..."
+            sleep 20
           else
-            echo "Cluster already semi-destroyed or unreachable. Proceeding directly to Terraform destroy."
+            echo "Cluster already semi-destroyed, unresponsive or unreachable. Proceeding directly to Terraform destroy."
           fi
 
       - name: Terraform Destroy
