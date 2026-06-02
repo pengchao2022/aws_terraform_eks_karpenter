@@ -38,3 +38,18 @@ variable "desired_nodes" {
   type        = number
   description = "The target number of managed system worker nodes for the EKS cluster control plane infrastructure."
 }
+
+variable "vpc_cni_version" {
+  type        = string
+  description = "The specific version of the AWS VPC CNI add-on compatible with the target Kubernetes version."
+}
+
+variable "coredns_version" {
+  type        = string
+  description = "The specific version of the CoreDNS add-on compatible with the target Kubernetes version."
+}
+
+variable "kube_proxy_version" {
+  type        = string
+  description = "The specific version of the Kube-Proxy add-on compatible with the target Kubernetes version."
+}

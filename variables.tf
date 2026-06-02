@@ -55,3 +55,18 @@ variable "tags" {
     ManagedBy   = "Terraform"
   }
 }
+
+variable "vpc_cni_version" {
+  type        = string
+  description = "The specific version of the AWS VPC CNI add-on compatible with the target Kubernetes version."
+}
+
+variable "coredns_version" {
+  type        = string
+  description = "The specific version of the CoreDNS add-on compatible with the target Kubernetes version."
+}
+
+variable "kube_proxy_version" {
+  type        = string
+  description = "The specific version of the Kube-Proxy add-on compatible with the target Kubernetes version."
+}
