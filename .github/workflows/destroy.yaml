@@ -54,30 +54,28 @@ jobs:
 
       - name: Pre-Destroy Cleanup (Kubernetes, Karpenter & ArgoCD)
         run: |
-          # get the eks cluster dynamicly
           CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "allen-eks-karpenter")
           echo "Target cluster to clean up: $CLUSTER_NAME"
           
-          # update kubeconfig
           if aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $CLUSTER_NAME 2>/dev/null; then
             echo "Successfully connected to cluster. Starting graceful rollback..."
             
-            # uninstall argocd 
-            echo "Uninstalling ArgoCD via Helm (Releasing AWS LoadBalancer)..."
+            # remove helm and loadBalancer service
+            echo "Force deleting ArgoCD LoadBalancer Service..."
+            kubectl delete svc argocd-server -n argocd --ignore-not-found --timeout=30s || true
+            
+            echo "Uninstalling ArgoCD via Helm..."
             helm uninstall argocd -n argocd || true
             
-            # give 30 senconds to wait the LB to cleanup
-            echo "Waiting for AWS LoadBalancer to be fully deleted from cloud infrastructure..."
-            sleep 30
+            echo "Waiting 2 minutes for AWS LoadBalancer & ENIs to be fully released from VPC..."
+            sleep 120
             
-            # force remove argocd namesapce
+            echo "Deleting namespace..."
             kubectl delete namespace argocd --ignore-not-found --timeout=30s || true
 
-            # remove the pods
             echo "Deleting placeholder deployments..."
             kubectl delete deployment keep-nodes --ignore-not-found --timeout=30s || true
             
-            # force remove do not break the workflow using true
             echo "Tearing down Karpenter NodePools and EC2NodeClasses..."
             kubectl delete nodepool --all --ignore-not-found --timeout=5m || true
             kubectl delete ec2nodeclass --all --ignore-not-found --timeout=5m || true
@@ -87,19 +85,16 @@ jobs:
               kubectl patch nodepool $np -p '{"metadata":{"finalizers":null}}' --type=merge || true
             done
             
-            # remove karpenter using helm uninstall 
             echo "Uninstalling Karpenter controller via Helm..."
             helm uninstall karpenter -n karpenter || true
             
-            # uninstall the metrics server
             echo "Uninstalling Metrics Server via Helm..."
             helm uninstall metrics-server -n kube-system || true
             
-            # give time for the cloud resources to Cleanup
             echo "Waiting for all cloud provider resources to settle down..."
             sleep 20
           else
-            echo "Cluster already semi-destroyed, unresponsive or unreachable. Proceeding directly to Terraform destroy."
+            echo "Cluster already semi-destroyed. Proceeding directly to Terraform destroy."
           fi
 
       - name: Terraform Destroy
