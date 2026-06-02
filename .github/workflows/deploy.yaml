@@ -124,7 +124,7 @@ jobs:
               karpenter.sh/discovery: ${CLUSTER_NAME}
           EOF
 
-          # 6. 下发 NodePool
+          # 6. 🌟 下发 NodePool：完美对齐缩进，确保 YAML 语法无瑕疵
           cat <<-EOF | kubectl apply -f -
           apiVersion: karpenter.sh/v1
           kind: NodePool
@@ -159,9 +159,9 @@ jobs:
             disruption:
               consolidationPolicy: WhenUnderutilized
               consolidateAfter: 1m
-            EOF
+          EOF
 
-          # 7. 创建占位 Deployment 触发动态扩容
+          # 7. 🌟 创建占位 Deployment：严格对齐格式，强行逼迫 Karpenter 拉起 3 个真正的 Ubuntu Node
           cat <<-EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
@@ -185,4 +185,4 @@ jobs:
                     requests:
                       cpu: "1"
                       memory: 1Gi
-            EOF
+          EOF
