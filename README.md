@@ -2,6 +2,8 @@
 
 This project provisions an AWS EKS cluster and deploys Karpenter using Terraform. The architecture follows a hybrid node management strategy where system components run on ASG-managed nodes, while Karpenter dynamically provisions workload nodes.
 
+I also need added intergrated ArgoCD on EKS to make it a GitOps platform
+
 
 ### Node Management Strategy
 
@@ -69,6 +71,19 @@ allen@allens-MacBook-Pro devops % kubectl get pods -n karpenter
 NAME                         READY   STATUS    RESTARTS   AGE
 karpenter-56fd6c799f-rh7sl   1/1     Running   0          16m
 ```
+
+## Check the ArgoCD public URL and password after deployed
+```shell
+kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo
+```
+
+```shell
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath={.data.password} | base64 -d; echo
+```
+ArgoCD default username is: admin
+
+
+
 
 
 
