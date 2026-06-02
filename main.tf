@@ -23,6 +23,7 @@ module "eks" {
   private_subnet_ids  = module.vpc.private_subnet_ids
   public_subnet_ids   = module.vpc.public_subnet_ids
   tags                = var.tags
+  desired_nodes       = var.desired_nodes
 }
 
 # permission Karpenter-Specific AWS IAM Roles and Policies

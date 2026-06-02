@@ -62,9 +62,9 @@ resource "aws_eks_node_group" "system" {
 
   # 🌟 终极修复：必须严格使用物理换行，去掉分号（;）
   scaling_config {
-    desired_size = 1
-    max_size     = 2
-    min_size     = 1
+    desired_size = var.desired_nodes
+    max_size     = var.desired_nodes + 3
+    min_size     = var.desired_nodes
   }
 
   ami_type       = "AL2_x86_64"
