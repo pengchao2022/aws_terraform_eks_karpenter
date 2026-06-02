@@ -198,3 +198,34 @@ jobs:
             --set args='{--kubelet-insecure-tls}' \
             --atomic \
             --timeout 5m
+
+      - name: Deploy ArgoCD
+        run: |
+          echo "Creating argocd namespace dynamically if not exists..."
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Adding Argo Helm repository..."
+          helm repo add argoproj https://argoproj.github.io/argo-helm
+          helm repo update
+          
+          echo "Installing ArgoCD with LoadBalancer..."
+          helm upgrade --install argocd argoproj/argo-cd \
+            --namespace argocd \
+            --version "7.1.1" \
+            --set server.service.type=LoadBalancer \
+            --set global.image.repository=quay.io/argoproj/argocd \
+            --atomic \
+            --timeout 5m
+
+          echo "Waiting for ArgoCD Server Pod to be ready..."
+          kubectl wait --namespace argocd \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/name=argocd-server \
+            --timeout=180s
+
+          echo "======================================================================"
+          echo " ✅ArgoCD deployed successfully!"
+          echo "======================================================================"
+          echo "Run the following command to fetch the public domain(URL):"
+          echo "kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo"
+          echo "======================================================================"
