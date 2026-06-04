@@ -108,11 +108,10 @@ jobs:
           metadata:
             name: default
           spec:
-            amiFamily: Custom
+            amiFamily: AL2
             role: "KarpenterNodeRole-${CLUSTER_NAME}"
             amiSelectorTerms:
-              - name: "ubuntu-eks-1.31-*" # using the aws official Ubuntu K8s 1.31 image
-                owner: "099720109477"     # Canonical ubuntu
+              - alias: al2@latest
             subnetSelectorTerms:
               - tags:
                   karpenter.sh/discovery: ${CLUSTER_NAME}
