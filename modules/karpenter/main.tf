@@ -28,11 +28,21 @@ resource "aws_iam_policy" "karpenter_controller" {
       {
         Effect = "Allow"
         Action = [
+          # EC2 resouces access
           "ec2:DescribeImages", "ec2:DescribeInstanceTypes", "ec2:DescribeSubnets",
           "ec2:DescribeSecurityGroups", "ec2:DescribeLaunchTemplates", "ec2:DescribeInstances",
           "ec2:CreateFleet", "ec2:CreateLaunchTemplate", "ec2:CreateTags",
           "ec2:RunInstances", "ec2:TerminateInstances", "ec2:DeleteLaunchTemplate",
-          "iam:PassRole", "ssm:GetParameter"
+          "ssm:GetParameter",
+          
+          # Karpenter IAM role for node create
+          "iam:GetInstanceProfile",
+          "iam:PassRole",
+          "iam:TagRole",
+          "iam:CreateInstanceProfile",
+          "iam:DeleteInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile"
         ]
         Resource = ["*"]
       },
