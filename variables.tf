@@ -70,3 +70,9 @@ variable "kube_proxy_version" {
   type        = string
   description = "The specific version of the Kube-Proxy add-on compatible with the target Kubernetes version."
 }
+
+variable "ebs_csi_version" {
+  description = "EBS CSI Driver version"
+  type        = string
+  default     = "v1.37.0-eksbuild.1"
+}

@@ -53,3 +53,8 @@ variable "kube_proxy_version" {
   type        = string
   description = "The specific version of the Kube-Proxy add-on compatible with the target Kubernetes version."
 }
+
+variable "ebs_csi_version" {
+  description = "Version of the Amazon EBS CSI Driver add-on"
+  type        = string
+}

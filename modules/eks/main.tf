@@ -112,6 +112,17 @@ resource "aws_eks_addon" "vpc_cni" {
   depends_on                  = [aws_eks_cluster.this, aws_iam_role_policy_attachment.karpenter_node]
 }
 
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = var.ebs_csi_version
+  service_account_role_arn = aws_iam_role.ebs_csi_controller_role.arn
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  
+  depends_on = [aws_eks_node_group.system]
+}
+
 # node iam role and policy
 resource "aws_iam_role" "karpenter_node_role" {
   name = "KarpenterNodeRole-${var.cluster_name}"
@@ -136,6 +147,32 @@ resource "aws_iam_role_policy_attachment" "karpenter_node" {
 resource "aws_iam_instance_profile" "karpenter" {
   name = "KarpenterNodeInstanceProfile-${var.cluster_name}"
   role = aws_iam_role.karpenter_node_role.name
+}
+
+# EBS CSI Driver IAM Role (IRSA)
+resource "aws_iam_role" "ebs_csi_controller_role" {
+  name = "ebs-csi-controller-role-${var.cluster_name}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+        }
+      }
+    }]
+  })
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_controller_policy" {
+  role       = aws_iam_role.ebs_csi_controller_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
 # added IAM user arn here if you have several users needs to access eks just add user arn here
