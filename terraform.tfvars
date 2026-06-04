@@ -14,3 +14,4 @@ tags = {
 vpc_cni_version    = "v1.18.3-eksbuild.1"
 coredns_version    = "v1.11.3-eksbuild.1"
 kube_proxy_version = "v1.31.14-eksbuild.18"
+ebs_csi_version    = "v1.37.0-eksbuild.1"

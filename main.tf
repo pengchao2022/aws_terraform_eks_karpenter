@@ -27,6 +27,7 @@ module "eks" {
   vpc_cni_version    = var.vpc_cni_version
   coredns_version    = var.coredns_version
   kube_proxy_version = var.kube_proxy_version
+  ebs_csi_version    = var.ebs_csi_version
 }
 
 # permission Karpenter-Specific AWS IAM Roles and Policies
