@@ -26,6 +26,9 @@ I also need added intergrated ArgoCD on EKS to make it a GitOps platform
 - Terraform state backend (S3 bucket + DynamoDB table)
 - AWS CLI configured locally for testing
 
+- S3 bucket used for storage to store terraform.tfstate file
+- Dynamodb used for locking 
+
 ## GitHub Secrets Configuration
 
 | Secret Name | Description |
