@@ -92,6 +92,61 @@ ArgoCD default username is: admin
   - ami_type 
 
 
+## New added
+- Added ebs-csi controller install by terraform also added IRSA for ebs csi driver 
+```shell
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = var.ebs_csi_version
+  service_account_role_arn = aws_iam_role.ebs_csi_controller_role.arn
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  
+  depends_on = [aws_eks_node_group.system]
+}
+```
+- IRSA
+```shell
+# EBS CSI Driver IAM Role (IRSA)
+resource "aws_iam_role" "ebs_csi_controller_role" {
+  name = "ebs-csi-controller-role-${var.cluster_name}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+        }
+      }
+    }]
+  })
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_controller_policy" {
+  role       = aws_iam_role.ebs_csi_controller_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+- Check the ebs csi controller on EKS
+
+```shell
+allen@192 aws_terraform_eks_karpenter % kubectl get pods -n kube-system | grep ebs-csi
+ebs-csi-controller-55574d4b76-f7wrx   6/6     Running   0          10m
+ebs-csi-controller-55574d4b76-hnrjv   6/6     Running   0          10m
+ebs-csi-node-fd5zt                    3/3     Running   0          10m
+ebs-csi-node-htrqv                    3/3     Running   0          10m
+ebs-csi-node-kt87x                    3/3     Running   0          10m
+ebs-csi-node-mx89r                    3/3     Running   0          10m
+```
+
+
 
 
 
