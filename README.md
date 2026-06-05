@@ -149,6 +149,56 @@ ebs-csi-node-kt87x                    3/3     Running   0          10m
 ebs-csi-node-mx89r                    3/3     Running   0          10m
 ```
 
+## Difference between count and for_each in Terraform
+
+### count 
+
+   count 接收一个整数（Integer），表示你需要创建资源的份数。适用完全相同的资源，且资源之间不需要特殊的唯一标识，或者仅仅是需要创建多个个副本，在资源内部通过 count.index 来获取当前是第几个资源（从 0 开始）
+
+- 如 创建 3 个相同的 EC2 主机
+```shell
+resource "aws_instance" "web" {
+  count         = 3
+  ami           = "ami-0c101f26f147fa7fd" # 请替换为你所在区域有效的 AMI ID
+  instance_type = "t3.micro"
+
+  tags = {
+    Name = "my-instance-${count.index}"
+  }
+}
+```
+
+### for_each
+
+  for_each 接收一个映射（Map）或集合（Set）。它会遍历集合中的每一个元素，并为每个元素创建一个资源实例。适用于资源配置略有不同，或者你有明确的 Key-Value 对应关系。数据引用在资源内部，通过 each.key 和 each.value 来访问当前遍历到的项。
+
+- 如 为不同环境创建不同的 VPC 
+
+```shell
+variable "environments" {
+  default = {
+    dev  = "10.0.1.0/24"
+    prod = "10.0.2.0/24"
+  }
+}
+
+resource "aws_vpc" "this" {
+  for_each   = var.environments
+  cidr_block = each.value # 使用 value
+  tags = {
+    Name = each.key       # 使用 key (dev, prod)
+  }
+}
+```
+- 核心对比
+| 特性 | `count`（基于索引） | `for_each`（基于 Map Key 或 Set 元素） |
+|------|-------------------|---------------------------------------|
+| 输入类型 | 整数 (Integer) | Map 或 Set |
+| 唯一标识 | 基于索引 (0, 1, 2...) | 基于 Map 的 Key 或 Set 的元素 |
+| 灵活性 | 低，删除中间一个会导致后续资源全部被重建 | 高，删除中间一个只会影响该实例，其他不受影响 |
+| 适用范围 | 完全一样的克隆资源 | 每个资源有独立配置的集合 |
+
+
 
 
 
